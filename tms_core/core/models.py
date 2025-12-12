@@ -102,7 +102,10 @@ class Trip(models.Model):
     
     origin = models.CharField(max_length=100)
     destination = models.CharField(max_length=100)
+    destinations = models.JSONField(default=list, blank=True)
+    completed_destinations = models.JSONField(default=list, blank=True)
     cargo_type = models.CharField(max_length=50, blank=True)
+    surat_jalan_number = models.CharField(max_length=50, unique=True, blank=True, null=True)
     
     # Financials
     revenue = models.DecimalField(max_digits=12, decimal_places=0, default=0) # Ongkos Angkut
@@ -130,3 +133,12 @@ class Trip(models.Model):
     @property
     def profit(self):
         return self.revenue - self.allowance_given - (self.total_expense if self.balance < 0 else 0)
+
+
+class SuratJalanHistory(models.Model):
+    trip = models.ForeignKey(Trip, on_delete=models.CASCADE, related_name='surat_histories')
+    surat_jalan_number = models.CharField(max_length=50)
+    changed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-changed_at']

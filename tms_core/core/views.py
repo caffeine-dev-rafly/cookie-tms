@@ -7,7 +7,10 @@ from datetime import datetime, timedelta, time
 from django.utils import timezone
 
 from .models import Vehicle, Trip, Customer, Route, User, VehiclePosition
-from .serializers import VehicleSerializer, TripSerializer, UserSerializer, CustomerSerializer, RouteSerializer, VehiclePositionSerializer
+from .serializers import (
+    VehicleSerializer, TripSerializer, UserSerializer, CustomerSerializer, 
+    RouteSerializer, VehiclePositionSerializer, SuratJalanHistorySerializer, generate_surat_number
+)
 
 class VehicleViewSet(viewsets.ModelViewSet):
     serializer_class = VehicleSerializer
@@ -57,6 +60,48 @@ class TripViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save()
+
+    @action(detail=False, methods=['get'], url_path='next-surat-number')
+    def next_surat_number(self, request):
+        """
+        Provide the next Surat Jalan number so the frontend can prefill while keeping numbers unique.
+        """
+        return Response({'next_surat_jalan_number': generate_surat_number()})
+
+    @action(detail=True, methods=['get'], url_path='surat-history')
+    def surat_history(self, request, pk=None):
+        trip = self.get_object()
+        history = trip.surat_histories.all()
+        serializer = SuratJalanHistorySerializer(history, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'], url_path='arrive')
+    def mark_arrival(self, request, pk=None):
+        """
+        Mark a destination as arrived. If all destinations are done, auto-complete the trip.
+        """
+        trip = self.get_object()
+        destination = request.data.get('destination')
+        if not destination:
+            return Response({"error": "destination is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        destinations = trip.destinations or ([trip.destination] if trip.destination else [])
+        if destination not in destinations:
+            return Response({"error": "Destination not part of this trip"}, status=status.HTTP_400_BAD_REQUEST)
+
+        completed = trip.completed_destinations or []
+        if destination not in completed:
+            completed.append(destination)
+        trip.completed_destinations = completed
+
+        if trip.status == 'PLANNED':
+            trip.status = 'OTW'
+
+        if len(set(completed)) >= len(destinations):
+            trip.status = 'COMPLETED'
+
+        trip.save()
+        return Response(TripSerializer(trip).data, status=status.HTTP_200_OK)
 
 class CustomerViewSet(viewsets.ModelViewSet):
     serializer_class = CustomerSerializer

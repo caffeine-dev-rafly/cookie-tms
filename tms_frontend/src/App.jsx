@@ -8,6 +8,8 @@ import LiveMap from './pages/LiveMap';
 import HistoryPlayback from './pages/HistoryPlayback';
 import TripCreate from './pages/finance/TripCreate';
 import TripSettlement from './pages/finance/TripSettlement';
+import TripHistory from './pages/finance/TripHistory';
+import DriverTasks from './pages/DriverTasks';
 import Maintenance from './pages/mechanic/Maintenance';
 import CustomerList from './pages/admin/CustomerList';
 import RouteList from './pages/admin/RouteList';
@@ -21,9 +23,15 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route path="map" element={<LiveMap />} />
             <Route path="history" element={<HistoryPlayback />} />
+            <Route path="driver/tasks" element={<DriverTasks />} />
             
-            <Route path="finance/create-trip" element={<TripCreate />} />
-            <Route path="finance/settlement" element={<TripSettlement />} />
+            {/* Departure (formerly Finance) */}
+            <Route path="departure/create-trip" element={<TripCreate />} />
+            <Route path="departure/history" element={<TripHistory />} />
+            <Route path="departure/settlement" element={<TripSettlement />} />
+            {/* Legacy routes fallback */}
+            <Route path="finance/create-trip" element={<Navigate to="/departure/create-trip" replace />} />
+            <Route path="finance/settlement" element={<Navigate to="/departure/settlement" replace />} />
             
             <Route path="mechanic/maintenance" element={<Maintenance />} />
             

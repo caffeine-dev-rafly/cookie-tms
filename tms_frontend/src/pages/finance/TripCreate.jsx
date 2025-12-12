@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Send, Truck, User, MapPin, DollarSign, Briefcase, Package, AlertTriangle } from 'lucide-react';
+import { Send, Truck, User, MapPin, DollarSign, Briefcase, Package, AlertTriangle, FileText, Plus, X } from 'lucide-react';
 import SearchableSelect from '../../components/SearchableSelect';
 
 const TripCreate = () => {
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [trips, setTrips] = useState([]);
   
   // Form State
   const [selectedVehicle, setSelectedVehicle] = useState('');
@@ -14,8 +15,10 @@ const TripCreate = () => {
   const [selectedCustomer, setSelectedCustomer] = useState('');
   
   const [origin, setOrigin] = useState('Bandung');
-  const [destination, setDestination] = useState('Jakarta');
+  const [destinations, setDestinations] = useState(['Jakarta']);
+  const [destinationInput, setDestinationInput] = useState('');
   const [cargoType, setCargoType] = useState('General');
+  const [suratNumber, setSuratNumber] = useState('');
   
   const [allowance, setAllowance] = useState(500000); // Sangu
   const [revenue, setRevenue] = useState(0); // Ongkos Angkut
@@ -33,17 +36,50 @@ const TripCreate = () => {
           
           const cRes = await axios.get('http://localhost:8000/api/customers/');
           setCustomers(cRes.data);
+
+          const tRes = await axios.get('http://localhost:8000/api/trips/');
+          setTrips(tRes.data);
+          
+          // Prefill Surat Jalan number
+          const sjRes = await axios.get('http://localhost:8000/api/trips/next-surat-number/');
+          setSuratNumber(sjRes.data.next_surat_jalan_number || '');
         } catch (error) {
           console.error("Error fetching form data:", error);
+          // Fallback generator if backend not reachable
+          setSuratNumber(prev => {
+            if (prev) return prev;
+            const now = new Date();
+            return `SJ-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}-${String(now.getTime()).slice(-4)}`;
+          });
         }
     };
     fetchData();
   }, []);
 
+  // Destination helpers
+  const addDestination = () => {
+    const value = destinationInput.trim();
+    if (!value) return;
+    if (destinations.includes(value)) {
+      setDestinationInput('');
+      return;
+    }
+    setDestinations(prev => [...prev, value]);
+    setDestinationInput('');
+  };
+
+  const removeDestination = (value) => {
+    setDestinations(prev => prev.filter(d => d !== value));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if(!selectedVehicle || !selectedDriver) {
         alert("Please select both a Truck and a Driver!");
+        return;
+    }
+    if(destinations.length === 0) {
+        alert("Please add at least one destination.");
         return;
     }
 
@@ -53,17 +89,19 @@ const TripCreate = () => {
         driver: selectedDriver,
         customer: selectedCustomer || null,
         origin: origin,
-        destination: destination,
+        destination: destinations[0], // Legacy support for single destination
+        destinations: destinations,
         cargo_type: cargoType,
         allowance_given: allowance,
         revenue: revenue,
+        surat_jalan_number: suratNumber,
         status: 'PLANNED',
         organization: 1 
     };
 
     try {
         await axios.post('http://localhost:8000/api/trips/', tripData);
-        alert(`Success! Rp ${parseInt(allowance).toLocaleString()} sent to Driver.`);
+        alert(`Departure created. Rp ${parseInt(allowance).toLocaleString()} set as allowance.`);
         // Optional: Reset form or redirect
     } catch (error) {
         console.error("Error creating trip:", error);
@@ -74,17 +112,41 @@ const TripCreate = () => {
   };
 
   // Derived Data
-  const vehicleOptions = vehicles.map(v => ({
-    value: v.id,
-    label: `${v.license_plate} (${v.vehicle_type})`,
-    subLabel: `Status: ${v.status || 'Active'}`
-  }));
+  const activeTrips = useMemo(
+    () => trips.filter(t => t.status !== 'COMPLETED' && t.status !== 'CANCELLED'),
+    [trips]
+  );
+  const busyVehicleIds = useMemo(() => new Set(activeTrips.map(t => t.vehicle)), [activeTrips]);
+  const busyDriverIds = useMemo(() => new Set(activeTrips.map(t => t.driver)), [activeTrips]);
 
-  const driverOptions = drivers.map(d => ({
-    value: d.id,
-    label: d.username,
-    subLabel: `ID: ${d.id}`
-  }));
+  useEffect(() => {
+    if (selectedVehicle && busyVehicleIds.has(Number(selectedVehicle))) {
+        setSelectedVehicle('');
+    }
+    if (selectedDriver && busyDriverIds.has(Number(selectedDriver))) {
+        setSelectedDriver('');
+    }
+  }, [busyVehicleIds, busyDriverIds, selectedVehicle, selectedDriver]);
+
+  const vehicleOptions = vehicles.map(v => {
+    const blocked = busyVehicleIds.has(v.id);
+    return {
+      value: v.id,
+      label: `${v.license_plate} (${v.vehicle_type})`,
+      subLabel: blocked ? 'On active trip' : `Status: ${v.status || 'Active'}`,
+      disabled: blocked,
+    };
+  });
+
+  const driverOptions = drivers.map(d => {
+    const blocked = busyDriverIds.has(d.id);
+    return {
+      value: d.id,
+      label: d.username,
+      subLabel: blocked ? 'On active trip' : `ID: ${d.id}`,
+      disabled: blocked,
+    };
+  });
 
   const customerOptions = customers.map(c => ({
     value: c.id,
@@ -101,7 +163,7 @@ const TripCreate = () => {
       <div className="bg-white rounded-lg shadow-lg overflow-hidden">
         <div className="bg-green-600 p-4 text-white flex items-center gap-2">
             <DollarSign />
-            <h2 className="text-xl font-bold">Input Uang Jalan (Trip Allowance)</h2>
+            <h2 className="text-xl font-bold">Input Departure</h2>
         </div>
         
         <form onSubmit={handleSubmit} className="p-6 space-y-8">
@@ -191,17 +253,61 @@ const TripCreate = () => {
                     </div>
 
                     <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Destination (End)</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Destinations (Multiple)</label>
                         <div className="relative">
                             <MapPin className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
                             <input 
                                 type="text" 
-                                value={destination} 
-                                onChange={e => setDestination(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
-                                placeholder="Jakarta"
+                                value={destinationInput} 
+                                onChange={e => setDestinationInput(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        addDestination();
+                                    }
+                                }}
+                                className="w-full pl-10 pr-14 py-2 border rounded-lg focus:ring-2 focus:ring-green-500 focus:outline-none"
+                                placeholder="Add destination then press Enter"
                             />
+                            <button 
+                                type="button"
+                                onClick={addDestination}
+                                className="absolute right-2 top-2 bg-green-600 text-white px-3 py-1 rounded-md text-xs hover:bg-green-700 flex items-center gap-1"
+                            >
+                                <Plus size={14}/> Add
+                            </button>
                         </div>
+                        <div className="flex flex-wrap gap-2 mt-2">
+                            {destinations.map(dest => (
+                                <span key={dest} className="bg-green-50 text-green-700 border border-green-200 px-3 py-1 rounded-full text-xs flex items-center gap-1">
+                                    {dest}
+                                    <button type="button" onClick={() => removeDestination(dest)} className="text-green-600 hover:text-green-800">
+                                        <X size={12}/>
+                                    </button>
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 2.5 Surat Jalan */}
+            <div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-4 border-b pb-2 flex items-center gap-2">
+                    <FileText className="text-green-600" />
+                    Surat Jalan
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Surat Jalan Number</label>
+                        <input
+                            type="text"
+                            value={suratNumber}
+                            onChange={(e) => setSuratNumber(e.target.value)}
+                            className="w-full border rounded-lg px-4 py-2 focus:ring-2 focus:ring-green-500 focus:outline-none font-mono"
+                            placeholder="SJ-20251213-0001"
+                        />
+                        <p className="text-xs text-gray-500 mt-1">Auto-generated. Admin can edit before saving.</p>
                     </div>
                 </div>
             </div>
@@ -248,7 +354,7 @@ const TripCreate = () => {
                 {loading ? 'Processing...' : (
                     <>
                         <Send size={24} />
-                        Create Trip & Issue Funds
+                        Create Departure
                     </>
                 )}
             </button>

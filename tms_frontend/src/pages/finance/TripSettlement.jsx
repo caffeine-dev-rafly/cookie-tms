@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Calculator, CheckCircle, DollarSign, Fuel, Truck, AlertCircle } from 'lucide-react';
+import { Calculator, CheckCircle, DollarSign, Fuel, Truck, AlertCircle, FileText } from 'lucide-react';
 import SearchableSelect from '../../components/SearchableSelect';
 
 const TripSettlement = () => {
@@ -15,6 +15,8 @@ const TripSettlement = () => {
   const [otherCost, setOtherCost] = useState(0);
   
   const [loading, setLoading] = useState(false);
+  const [suratHistory, setSuratHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   useEffect(() => {
     // Fetch Active Trips (Planned or OTW)
@@ -30,6 +32,27 @@ const TripSettlement = () => {
     };
     fetchTrips();
   }, []);
+
+  // Fetch surat jalan history when trip changes
+  useEffect(() => {
+    if (!selectedTripId) {
+        setSuratHistory([]);
+        return;
+    }
+    const fetchHistory = async () => {
+        setHistoryLoading(true);
+        try {
+            const res = await axios.get(`http://localhost:8000/api/trips/${selectedTripId}/surat-history/`);
+            setSuratHistory(res.data);
+        } catch (error) {
+            console.error("Error fetching surat jalan history:", error);
+            setSuratHistory([]);
+        } finally {
+            setHistoryLoading(false);
+        }
+    };
+    fetchHistory();
+  }, [selectedTripId]);
 
   // Find selected trip details
   const currentTrip = trips.find(t => t.id === parseInt(selectedTripId));
@@ -73,7 +96,7 @@ const TripSettlement = () => {
   const tripOptions = trips.map(t => ({
     value: t.id,
     label: `${t.vehicle_plate} - ${t.driver_name}`,
-    subLabel: `${t.origin} -> ${t.destination} (Sangu: ${parseInt(t.allowance_given).toLocaleString()})`
+    subLabel: `${t.origin} -> ${(t.destinations && t.destinations.length ? t.destinations.join(' -> ') : t.destination)} (Sangu: ${parseInt(t.allowance_given).toLocaleString()})`
   }));
 
   return (
@@ -105,6 +128,40 @@ const TripSettlement = () => {
                     icon={Truck}
                 />
             </div>
+
+            {/* Surat Jalan Card */}
+            {currentTrip && (
+                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 space-y-3">
+                    <h3 className="font-bold text-lg flex items-center gap-2 text-gray-800">
+                        <FileText size={18} className="text-blue-600" />
+                        Surat Jalan
+                    </h3>
+                    <div className="flex items-center justify-between bg-blue-50 border border-blue-100 px-4 py-3 rounded-lg">
+                        <div>
+                            <p className="text-xs text-blue-600 uppercase font-semibold">Current Number</p>
+                            <p className="font-mono text-lg font-bold text-blue-800">{currentTrip.surat_jalan_number || '—'}</p>
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="text-xs text-gray-500 mb-2">History</p>
+                        <div className="max-h-40 overflow-y-auto border border-gray-100 rounded-md">
+                            {historyLoading ? (
+                                <div className="p-3 text-sm text-gray-500">Loading history...</div>
+                            ) : suratHistory.length === 0 ? (
+                                <div className="p-3 text-sm text-gray-500">No history yet.</div>
+                            ) : (
+                                suratHistory.map((item, idx) => (
+                                    <div key={idx} className="px-3 py-2 border-b last:border-b-0 border-gray-100 flex items-center justify-between">
+                                        <span className="font-mono text-sm text-gray-800">{item.surat_jalan_number}</span>
+                                        <span className="text-xs text-gray-400">{new Date(item.changed_at).toLocaleString()}</span>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* 2. Expenses Form */}
             {currentTrip && (

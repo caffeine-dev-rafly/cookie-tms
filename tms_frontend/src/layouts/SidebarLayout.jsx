@@ -5,10 +5,11 @@ import {
   LayoutDashboard, 
   Map as MapIcon,
   History, 
-  DollarSign, 
+  Truck, 
   Wrench, 
   Settings,
   Database, // New Icon
+  ClipboardCheck,
   Menu, 
   X, 
   LogOut,
@@ -84,7 +85,14 @@ const SidebarLayout = () => {
             Trip Playback
           </NavLink>
 
-          {/* Finance Section */}
+          {(hasAccess(['DRIVER', 'ADMIN'])) && (
+            <NavLink to="/driver/tasks" className={navItemClass}>
+              <ClipboardCheck size={20} />
+              Driver Tasks
+            </NavLink>
+          )}
+
+          {/* Departure Section (previously Finance) */}
           {(hasAccess(['ADMIN', 'FINANCE'])) && (
             <>
                 <button 
@@ -92,18 +100,21 @@ const SidebarLayout = () => {
                   className="flex items-center justify-between w-full px-4 py-3 text-gray-300 hover:bg-gray-800 hover:text-white rounded-lg"
                 >
                   <div className="flex items-center gap-3">
-                    <DollarSign size={20} />
-                    Finance
+                    <Truck size={20} />
+                    Departure
                   </div>
                   <ChevronDown size={16} className={`transition-transform ${financeOpen ? 'rotate-180' : ''}`} />
                 </button>
                 
                 {financeOpen && (
                   <div className="ml-4 space-y-1 border-l border-gray-700 pl-2">
-                     <NavLink to="/finance/create-trip" className={navItemClass}>
-                        Input Uang Jalan
+                     <NavLink to="/departure/create-trip" className={navItemClass}>
+                        Input Departure
                      </NavLink>
-                     <NavLink to="/finance/settlement" className={navItemClass}>
+                     <NavLink to="/departure/history" className={navItemClass}>
+                        History Trip Departure
+                     </NavLink>
+                     <NavLink to="/departure/settlement" className={navItemClass}>
                         Setoran Driver
                      </NavLink>
                   </div>
@@ -162,7 +173,7 @@ const SidebarLayout = () => {
             
             <div className="grid grid-cols-4 gap-1 mb-2">
                 <button title="Admin" onClick={() => login('ADMIN')} className="text-xs bg-gray-800 p-1 rounded hover:bg-gray-700">ADM</button>
-                <button title="Finance" onClick={() => login('FINANCE')} className="text-xs bg-gray-800 p-1 rounded hover:bg-gray-700">FIN</button>
+                <button title="Finance/Departure" onClick={() => login('FINANCE')} className="text-xs bg-gray-800 p-1 rounded hover:bg-gray-700">FIN</button>
                 <button title="Mechanic" onClick={() => login('MECHANIC')} className="text-xs bg-gray-800 p-1 rounded hover:bg-gray-700">MEC</button>
                 <button title="Driver" onClick={() => login('DRIVER')} className="text-xs bg-gray-800 p-1 rounded hover:bg-gray-700">DRV</button>
             </div>

@@ -82,19 +82,24 @@ const SearchableSelect = ({ options, value, onChange, placeholder, icon: Icon })
           
           <div className="overflow-y-auto flex-1">
             {filteredOptions.length > 0 ? (
-                filteredOptions.map((option) => (
-                <div 
-                    key={option.value}
-                    className={`
-                        px-4 py-2 text-sm cursor-pointer hover:bg-green-50 hover:text-green-700
-                        ${value === option.value ? 'bg-green-50 text-green-700 font-medium' : 'text-gray-700'}
-                    `}
-                    onClick={() => handleSelect(option)}
-                >
-                    {option.label}
-                    {option.subLabel && <span className="block text-xs text-gray-500">{option.subLabel}</span>}
-                </div>
-                ))
+                filteredOptions.map((option) => {
+                    const isDisabled = option.disabled;
+                    return (
+                        <div 
+                            key={option.value}
+                            className={`
+                                px-4 py-2 text-sm 
+                                ${isDisabled ? 'text-gray-400 cursor-not-allowed bg-gray-50' : 'cursor-pointer hover:bg-green-50 hover:text-green-700'}
+                                ${value === option.value ? 'bg-green-50 text-green-700 font-medium' : 'text-gray-700'}
+                            `}
+                            onClick={() => { if (!isDisabled) handleSelect(option); }}
+                        >
+                            {option.label}
+                            {option.subLabel && <span className="block text-xs text-gray-500">{option.subLabel}</span>}
+                            {isDisabled && <span className="block text-[11px] text-red-500">Unavailable (active trip)</span>}
+                        </div>
+                    );
+                })
             ) : (
                 <div className="p-4 text-center text-gray-500 text-sm">No results found</div>
             )}
