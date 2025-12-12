@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  # 1. The Web Server (Django)
+  web:
+    build: .
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - .:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DEBUG=1
+      - SECRET_KEY=changeme_in_production
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - DB_NAME=tms_db
+      - DB_USER=tms_user
+      - DB_PASSWORD=tms_pass
+      - DB_HOST=db
+
+  # 2. The Database (PostgreSQL)
+  db:
+    image: postgis/postgis:15-3.3
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=tms_db
+      - POSTGRES_USER=tms_user
+      - POSTGRES_PASSWORD=tms_pass
+    ports:
+      - "5432:5432"
+
+  # 3. Redis (For Cache & Live GPS updates)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+# 4. Traccar (The GPS Engine)
+  traccar:
+    image: traccar/traccar:latest
+    restart: always
+    ports:
+      - "8082:8082"       # Web UI
+      - "5055:5055"       # Phone App Port (Traccar Client)
+      - "5023:5023"       # GT06N Hardware Port (The cheap GPS)
+    volumes:
+      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+volumes:
+  postgres_data:
