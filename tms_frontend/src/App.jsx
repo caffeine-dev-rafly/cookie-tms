@@ -1,71 +1,42 @@
-import { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
-import 'leaflet/dist/leaflet.css';
-import L from 'leaflet';
-import icon from 'leaflet/dist/images/marker-icon.png';
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
+import SidebarLayout from './layouts/SidebarLayout';
 
-// Fix Icon
-let DefaultIcon = L.icon({
-    iconUrl: icon,
-    shadowUrl: iconShadow,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
+// Pages
+import Dashboard from './pages/Dashboard';
+import LiveMap from './pages/LiveMap';
+import HistoryPlayback from './pages/HistoryPlayback';
+import TripCreate from './pages/finance/TripCreate';
+import TripSettlement from './pages/finance/TripSettlement';
+import Maintenance from './pages/mechanic/Maintenance';
+import CustomerList from './pages/admin/CustomerList';
+import RouteList from './pages/admin/RouteList';
 
 function App() {
-  const [vehicles, setVehicles] = useState([]);
-
-  // Function to fetch data from Django
-  const fetchVehicles = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/api/vehicles/');
-      const data = await response.json();
-      console.log("Updated Data:", data); // Check console to see it working
-      setVehicles(data);
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    }
-  };
-
-  // Run on load, and then every 2 seconds
-  useEffect(() => {
-    fetchVehicles(); // Initial fetch
-    const interval = setInterval(fetchVehicles, 2000); // Poll every 2s
-    return () => clearInterval(interval); // Cleanup
-  }, []);
-
-  // Default Center (Bandung)
-  const defaultPosition = [-6.9175, 107.6191];
-
   return (
-    <div style={{ height: '100vh', width: '100vw' }}>
-      <MapContainer center={defaultPosition} zoom={13} style={{ height: '100%', width: '100%' }}>
-        <TileLayer
-          attribution='&copy; OpenStreetMap contributors'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<SidebarLayout />}>
+            <Route index element={<Dashboard />} />
+            <Route path="map" element={<LiveMap />} />
+            <Route path="history" element={<HistoryPlayback />} />
+            
+            <Route path="finance/create-trip" element={<TripCreate />} />
+            <Route path="finance/settlement" element={<TripSettlement />} />
+            
+            <Route path="mechanic/maintenance" element={<Maintenance />} />
+            
+            {/* Admin / Master Data */}
+            <Route path="admin/customers" element={<CustomerList />} />
+            <Route path="admin/routes" element={<RouteList />} />
 
-        {/* Loop through all trucks from Database */}
-        {vehicles.map(vehicle => (
-           // Only show marker if it has valid GPS data (not 0.0)
-           vehicle.last_latitude !== 0 && (
-            <Marker 
-              key={vehicle.id} 
-              position={[vehicle.last_latitude, vehicle.last_longitude]}
-            >
-              <Popup>
-                <b>{vehicle.license_plate}</b> <br />
-                Type: {vehicle.vehicle_type} <br />
-                Last Update: {new Date(vehicle.last_updated).toLocaleTimeString()}
-              </Popup>
-            </Marker>
-          )
-        ))}
-
-      </MapContainer>
-    </div>
+            {/* Fallback */}
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 

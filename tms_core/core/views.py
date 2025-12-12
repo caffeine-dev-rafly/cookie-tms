@@ -1,38 +1,77 @@
 from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import Vehicle, Trip
-from .serializers import VehicleSerializer, TripSerializer
+from rest_framework.decorators import action
+from django.utils.dateparse import parse_date
+from datetime import datetime, timedelta, time
+from django.utils import timezone
+
+from .models import Vehicle, Trip, Customer, Route, User, VehiclePosition
+from .serializers import VehicleSerializer, TripSerializer, UserSerializer, CustomerSerializer, RouteSerializer, VehiclePositionSerializer
 
 class VehicleViewSet(viewsets.ModelViewSet):
     serializer_class = VehicleSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    # SECURITY FILTER: Only return vehicles belonging to the user's organization
+    permission_classes = [permissions.AllowAny]
+    
     def get_queryset(self):
-        user = self.request.user
-        if user.is_staff: # Admin sees all
             return Vehicle.objects.all()
-        return Vehicle.objects.filter(organization=user.organization)
 
-    # AUTO-ASSIGN: When creating a vehicle, auto-link it to user's organization
-    def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization)
+    # ACTION: Get History for Playback
+    # GET /api/vehicles/1/history/?date=2025-12-13
+    @action(detail=True, methods=['get'])
+    def history(self, request, pk=None):
+        vehicle = self.get_object()
+        date_str = request.query_params.get('date')
+        
+        if not date_str:
+            # Default to today
+            query_date = timezone.now().date()
+        else:
+            query_date = parse_date(date_str)
+
+        if not query_date:
+            return Response({"error": "Invalid date format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Filter positions by date range (00:00 to 23:59)
+        start_of_day = datetime.combine(query_date, time.min)
+        end_of_day = datetime.combine(query_date, time.max)
+        
+        # Make it timezone aware if needed (assuming UTC for simplicity in this prototype)
+        # In production, handle timezones carefully!
+        
+        positions = VehiclePosition.objects.filter(
+            vehicle=vehicle,
+            timestamp__range=(start_of_day, end_of_day)
+        ).order_by('timestamp')
+
+        serializer = VehiclePositionSerializer(positions, many=True)
+        return Response(serializer.data)
 
 
 class TripViewSet(viewsets.ModelViewSet):
     serializer_class = TripSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [permissions.AllowAny]
 
     def get_queryset(self):
-        user = self.request.user
-        if user.is_staff:
-            return Trip.objects.all()
-        return Trip.objects.filter(organization=user.organization)
+        return Trip.objects.all()
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization)
+        serializer.save()
 
+class CustomerViewSet(viewsets.ModelViewSet):
+    serializer_class = CustomerSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = Customer.objects.all()
+
+class RouteViewSet(viewsets.ModelViewSet):
+    serializer_class = RouteSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = Route.objects.all()
+
+class DriverViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = User.objects.filter(role='DRIVER')
+    serializer_class = UserSerializer 
+    permission_classes = [permissions.AllowAny]
 
 # THE BRIDGE (Traccar -> Django)
 class GPSForwardView(APIView):
@@ -40,26 +79,108 @@ class GPSForwardView(APIView):
 
     # Handle GET requests (Browser test or Traccar check)
     def get(self, request):
-        return Response({"status": "Ready for data"}, status=status.HTTP_200_OK)
+        traccar_id = request.query_params.get('id')
+        lat = request.query_params.get('lat')
+        lon = request.query_params.get('lon')
+        course = request.query_params.get('course') 
+        speed = request.query_params.get('speed') # Knots usually
+        
+        if traccar_id and lat and lon:
+            try:
+                vehicle = Vehicle.objects.get(gps_device_id=traccar_id)
+                vehicle.last_latitude = float(lat)
+                vehicle.last_longitude = float(lon)
+                
+                heading_val = 0.0
+                if course:
+                    heading_val = float(course)
+                    vehicle.last_heading = heading_val
+                
+                speed_val = 0.0
+                if speed:
+                    speed_val = float(speed) * 1.852
+                    vehicle.last_speed = speed_val
+                
+                vehicle.save()
 
-    # Handle POST requests (Real GPS Data)
+                # SAVE HISTORY
+                VehiclePosition.objects.create(
+                    vehicle=vehicle,
+                    latitude=float(lat),
+                    longitude=float(lon),
+                    speed=speed_val,
+                    heading=heading_val,
+                    ignition=vehicle.last_ignition # Assume unchanged for GET
+                )
+
+                return Response({"status": "Updated"}, status=status.HTTP_200_OK)
+            except Vehicle.DoesNotExist:
+                return Response({"status": "Ignored"}, status=status.HTTP_200_OK)
+        
+        return Response({"status": "Ready"}, status=status.HTTP_200_OK)
+    
+
+    # Handle POST requests (Real GPS Data - Traccar Webhook)
     def post(self, request):
         data = request.data
         device_data = data.get('device', {})
         position_data = data.get('position', {})
         
         if not device_data:
-            return Response({"error": "No device data"}, status=status.HTTP_400_BAD_REQUEST)
+            traccar_id = data.get('uniqueId')
+            lat = data.get('latitude')
+            lon = data.get('longitude')
+            speed = data.get('speed')
+            attributes = data.get('attributes', {})
+            course = data.get('course')
+        else:
+            traccar_id = device_data.get('uniqueId')
+            lat = position_data.get('latitude')
+            lon = position_data.get('longitude')
+            speed = position_data.get('speed') # Knots
+            course = position_data.get('course')
+            attributes = position_data.get('attributes', {})
 
-        traccar_id = device_data.get('uniqueId')
-        lat = position_data.get('latitude')
-        lon = position_data.get('longitude')
-        
-        print(f"📡 GPS SIGNAL RECEIVED: {traccar_id} -> {lat}, {lon}")
+        if not traccar_id:
+             return Response({"error": "No device ID"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             vehicle = Vehicle.objects.get(gps_device_id=traccar_id)
+            
+            # Prepare values
+            lat_val = float(lat) if lat else vehicle.last_latitude
+            lon_val = float(lon) if lon else vehicle.last_longitude
+            speed_val = (float(speed) * 1.852) if speed is not None else vehicle.last_speed
+            heading_val = float(course) if course is not None else vehicle.last_heading
+            ignition_val = attributes.get('ignition', vehicle.last_ignition)
+
+            # Update Vehicle State
+            if lat and lon:
+                vehicle.last_latitude = lat_val
+                vehicle.last_longitude = lon_val
+            
+            vehicle.last_speed = speed_val
+            vehicle.last_heading = heading_val
+            vehicle.last_ignition = ignition_val
+            
+            if 'totalDistance' in attributes:
+                vehicle.current_odometer = int(attributes['totalDistance'] / 1000)
+
+            vehicle.save() 
+            
+            # SAVE HISTORY
+            if lat and lon:
+                VehiclePosition.objects.create(
+                    vehicle=vehicle,
+                    latitude=lat_val,
+                    longitude=lon_val,
+                    speed=speed_val,
+                    heading=heading_val,
+                    ignition=ignition_val
+                )
+
             return Response({"status": "Updated"}, status=status.HTTP_200_OK)
+            
         except Vehicle.DoesNotExist:
             print(f"⚠️ Unknown Device: {traccar_id}")
             return Response({"status": "Ignored"}, status=status.HTTP_200_OK)

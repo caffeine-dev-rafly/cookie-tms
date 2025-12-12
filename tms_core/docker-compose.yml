@@ -48,5 +48,6 @@ services:
       - "5023:5023"       # GT06N Hardware Port (The cheap GPS)
     volumes:
       - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+      - ./traccar/data:/opt/traccar/data:rw  # <--- NEW LINE: Saves DB to Windows
 volumes:
   postgres_data:

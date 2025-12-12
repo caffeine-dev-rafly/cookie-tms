@@ -8,6 +8,6 @@
     <entry key='web.port'>8082</entry>
     <entry key='web.address'>0.0.0.0</entry>
     <entry key='forward.enable'>true</entry>
-    <entry key='forward.url'>http://web:8000/api/forward-gps/</entry>
-    <entry key='forward.json'>true</entry>
+    <entry key='forward.url'>http://web:8000/api/forward-gps/?id={uniqueId}&amp;lat={latitude}&amp;lon={longitude}&amp;course={course}</entry>
+    <entry key='forward.json'>false</entry>
 </properties>
