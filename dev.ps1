@@ -1,8 +1,9 @@
-$ErrorActionPreference = 'Stop'
-
 param(
-    [switch]$SkipFrontendInstall
+    [switch]$SkipFrontendInstall,
+    [switch]$Stop
 )
+
+$ErrorActionPreference = 'Stop'
 
 function Assert-Command {
     param([string]$Name)
@@ -15,6 +16,16 @@ function Assert-Command {
 Write-Host "Checking prerequisites..." -ForegroundColor Cyan
 Assert-Command docker
 Assert-Command npm
+
+if ($Stop) {
+    Write-Host "`nStopping backend stack via docker compose..." -ForegroundColor Cyan
+    Push-Location tms_core
+    docker compose down
+    Pop-Location
+
+    Write-Host "`nIf the frontend dev server is running, close its PowerShell window to stop it." -ForegroundColor Yellow
+    return
+}
 
 # Start backend stack (Django + Postgres + Redis + Traccar) in Docker
 Write-Host "`nStarting backend stack via docker compose..." -ForegroundColor Cyan
