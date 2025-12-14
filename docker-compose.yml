@@ -1,0 +1,76 @@
+version: '3.8'
+
+services:
+  # 1. DATABASE (The Shared Brain)
+  db:
+    image: postgres:17
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres_init:/docker-entrypoint-initdb.d # <--- Loads the script
+    environment:
+      - POSTGRES_USER=rafly
+      - POSTGRES_PASSWORD=raflypassword
+      # This tells our script to create TWO databases:
+      - POSTGRES_MULTIPLE_DATABASES=tms_core_db,tms_master_db
+    ports:
+      - "5432:5432"
+
+  # 2. TRACCAR (The Eyes)
+  traccar:
+    image: traccar/traccar:latest
+    restart: always
+    ports:
+      - "8082:8082"
+      - "5055:5055"
+      - "5023:5023"
+    volumes:
+      - ./traccar/traccar.xml:/opt/traccar/conf/traccar.xml:ro
+      - ./traccar/data:/opt/traccar/data:rw
+
+  # 3. CLIENT CORE (The Regular Backend - Port 8000)
+  web:
+    build: ./tms_core
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./tms_core:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    environment:
+      - DB_NAME=tms_core_db # <--- Uses Client DB
+      - DB_USER=rafly
+      - DB_PASSWORD=raflypassword
+      - DB_HOST=db
+
+  # 4. SUPER ADMIN (God Mode - Port 9000)
+  master-api:
+    build: ./tms_master
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./tms_master:/app
+      - /var/run/docker.sock:/var/run/docker.sock # <--- Grants power to see Docker
+    ports:
+      - "9000:8000" # <--- Maps internal 8000 to external 9000
+    depends_on:
+      - db
+    environment:
+      - DB_NAME=tms_master_db # <--- Uses Master DB
+      - CLIENT_DB_NAME=tms_core_db # <--- Reads Client DB
+      - DB_USER=rafly
+      - DB_PASSWORD=raflypassword
+      - DB_HOST=db
+
+# 5. PORTAINER (Infrastructure God Mode)
+  portainer:
+    image: portainer/portainer-ce:latest
+    restart: always
+    ports:
+      - "9001:9000" # <--- Host 9001 -> Internal 9000
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+
+volumes:
+  postgres_data:
+  portainer_data:

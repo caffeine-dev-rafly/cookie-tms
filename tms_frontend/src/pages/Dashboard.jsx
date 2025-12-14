@@ -1,39 +1,82 @@
-import { useEffect, useMemo, useState } from 'react';
-import axios from 'axios';
-import { Truck, Users, DollarSign, Activity, Clock, BarChart3, Target } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import api from '../api/axios';
+import { Truck, MapPin, DollarSign, Users, Activity } from 'lucide-react';
+import { MapContainer, TileLayer, Marker } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { useAuth } from '../context/AuthContext';
+import DriverDashboard from './DriverDashboard';
 
-const StatCard = ({ title, value, icon: Icon, color }) => (
-  <div className="bg-white p-6 rounded-lg shadow-md flex items-center space-x-4">
-    <div className={`p-3 rounded-full ${color}`}>
-      <Icon className="text-white w-6 h-6" />
-    </div>
+// Fix icons
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+    iconUrl: icon,
+    shadowUrl: iconShadow,
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+});
+L.Marker.prototype.options.icon = DefaultIcon;
+
+const StatCard = ({ title, value, icon, color }) => (
+  <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between hover:shadow-md transition-shadow">
     <div>
-      <p className="text-gray-500 text-sm">{title}</p>
-      <h3 className="text-2xl font-bold">{value}</h3>
+      <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
+      <h3 className="text-2xl font-bold text-slate-800">{value}</h3>
+    </div>
+    <div className={`w-12 h-12 rounded-lg ${color} flex items-center justify-center text-white shadow-sm`}>
+      {icon}
     </div>
   </div>
 );
 
 const Dashboard = () => {
+  const { user } = useAuth();
+  
+  // DRIVER REDIRECT
+  if (user?.role === 'DRIVER') {
+      return <DriverDashboard />;
+  }
+
+  const [stats, setStats] = useState({ 
+    totalVehicles: 0, 
+    activeTrips: 0, 
+    availableDrivers: 0,
+    totalRevenue: '0' 
+  });
   const [vehicles, setVehicles] = useState([]);
-  const [drivers, setDrivers] = useState([]);
-  const [trips, setTrips] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [recentTrips, setRecentTrips] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
-      setLoading(true);
       try {
-        const [vRes, dRes, tRes] = await Promise.all([
-          axios.get('http://localhost:8000/api/vehicles/'),
-          axios.get('http://localhost:8000/api/drivers/'),
-          axios.get('http://localhost:8000/api/trips/')
+        const [vehRes, tripRes, driverRes] = await Promise.all([
+           api.get('vehicles/'),
+           api.get('trips/'),
+           api.get('drivers/')
         ]);
-        setVehicles(vRes.data);
-        setDrivers(dRes.data);
-        setTrips(tRes.data);
+        
+        const activeTripsCount = tripRes.data.filter(t => t.status === 'OTW').length;
+        const availableDriversCount = driverRes.data.length; // Simplified logic
+        
+        // Revenue logic would typically come from backend
+        // For now using mock
+        
+        setStats({
+          totalVehicles: vehRes.data.length || 0,
+          activeTrips: activeTripsCount,
+          availableDrivers: availableDriversCount,
+          totalRevenue: '1.2B', 
+        });
+
+        setVehicles(vehRes.data);
+        // Get last 5 trips
+        setRecentTrips(tripRes.data.slice(0, 5));
+        
       } catch (error) {
-        console.error('Error fetching dashboard data', error);
+        console.error("Failed to fetch dashboard data", error);
       } finally {
         setLoading(false);
       }
@@ -41,136 +84,63 @@ const Dashboard = () => {
     fetchData();
   }, []);
 
-  const now = Date.now();
-  const activeVehicles = useMemo(
-    () => vehicles.filter(v => {
-      if (!v.last_updated) return false;
-      const diff = now - new Date(v.last_updated).getTime();
-      return diff < 60 * 60 * 1000; // 1 hour
-    }),
-    [vehicles, now]
-  );
-
-  const otwTrips = trips.filter(t => t.status === 'OTW');
-  const pendingTrips = trips.filter(t => t.status !== 'COMPLETED' && t.status !== 'CANCELLED');
-  const pendingAllowance = pendingTrips.reduce((sum, t) => sum + Number(t.allowance_given || 0), 0);
-  const fleetHealthPct = vehicles.length === 0 ? 0 : Math.round((activeVehicles.length / vehicles.length) * 100);
-  const driversOnDuty = new Set(otwTrips.map(t => t.driver)).size || drivers.length;
-
-  const statusCounts = useMemo(() => {
-    const base = { PLANNED: 0, OTW: 0, COMPLETED: 0, CANCELLED: 0 };
-    trips.forEach(t => { base[t.status] = (base[t.status] || 0) + 1; });
-    return base;
-  }, [trips]);
-
-  const recentTrips = [...trips]
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
-    .slice(0, 5);
-
-  const last7DaysData = useMemo(() => {
-    const days = [];
-    for (let i = 6; i >= 0; i -= 1) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
-      const dayKey = date.toISOString().slice(0, 10);
-      const count = trips.filter(t => t.created_at && t.created_at.startsWith(dayKey)).length;
-      days.push({ label: date.toLocaleDateString(undefined, { weekday: 'short' }), count });
-    }
-    const max = Math.max(...days.map(d => d.count), 1);
-    return { days, max };
-  }, [trips]);
+  const defaultCenter = [-6.2088, 106.8456];
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center gap-3">
-        <div className="bg-blue-600 text-white p-3 rounded-full">
-          <BarChart3 size={22} />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-800">Dashboard Overview</h1>
-          <p className="text-gray-500 text-sm">Live snapshot from vehicles, trips, and drivers.</p>
-        </div>
-        {loading && <span className="ml-auto text-xs text-gray-500 flex items-center gap-1"><Clock size={14}/> Refreshing...</span>}
-      </div>
-      
+      <header>
+        <h1 className="text-2xl font-bold text-slate-800">Dashboard Overview</h1>
+        <p className="text-slate-500">Executive summary of operations.</p>
+      </header>
+
+      {/* 1. Stat Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard title="Active Vehicles" value={activeVehicles.length} icon={Truck} color="bg-blue-500" />
-        <StatCard title="Drivers on Duty" value={driversOnDuty} icon={Users} color="bg-green-500" />
-        <StatCard title="Pending Allowance" value={`Rp ${pendingAllowance.toLocaleString()}`} icon={DollarSign} color="bg-yellow-500" />
-        <StatCard title="Fleet Health" value={`${fleetHealthPct}%`} icon={Activity} color="bg-purple-500" />
+        <StatCard title="Total Vehicles" value={stats.totalVehicles} icon={<Truck size={24} />} color="bg-blue-500" />
+        <StatCard title="Active Trips" value={stats.activeTrips} icon={<Activity size={24} />} color="bg-amber-500" />
+        <StatCard title="Available Drivers" value={stats.availableDrivers} icon={<Users size={24} />} color="bg-emerald-500" />
+        <StatCard title="Total Revenue (Month)" value={stats.totalRevenue} icon={<DollarSign size={24} />} color="bg-purple-500" />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-lg">Recent Trips</h3>
-            <span className="text-xs text-gray-500">Latest 5</span>
-          </div>
-          {recentTrips.length === 0 ? (
-            <p className="text-gray-400">No trips recorded yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {recentTrips.map(trip => (
-                <div key={trip.id} className="flex items-center justify-between border rounded-lg px-3 py-2">
-                  <div>
-                    <p className="font-semibold text-gray-800 text-sm">{trip.vehicle_plate} • {trip.driver_name}</p>
-                    <p className="text-xs text-gray-500">{trip.origin} → {trip.destinations?.length ? trip.destinations.join(' → ') : trip.destination}</p>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-700">{trip.status}</span>
-                    <p className="text-xs text-gray-500 mt-1">{trip.created_at ? new Date(trip.created_at).toLocaleString() : ''}</p>
-                  </div>
-                </div>
-              ))}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 2. Mini Map */}
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-96 flex flex-col">
+            <div className="p-4 border-b border-slate-100 font-bold text-slate-800 flex items-center gap-2">
+               <MapPin size={18} className="text-blue-500"/> Fleet Preview
             </div>
-          )}
+            <div className="flex-1">
+               <MapContainer center={defaultCenter} zoom={10} style={{ height: '100%', width: '100%' }} zoomControl={false}>
+                  <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                  {vehicles.map(v => (
+                      v.last_latitude && v.last_longitude ? 
+                      <Marker key={v.id} position={[v.last_latitude, v.last_longitude]} /> : null
+                  ))}
+               </MapContainer>
+            </div>
         </div>
-        <div className="bg-white p-6 rounded-lg shadow-md">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-bold text-lg flex items-center gap-2"><Target size={18}/> Trip Status</h3>
-            <span className="text-xs text-gray-400">All trips</span>
-          </div>
-          <div className="space-y-3">
-            {['PLANNED','OTW','COMPLETED','CANCELLED'].map(key => {
-              const count = statusCounts[key] || 0;
-              const pct = trips.length ? Math.round((count / trips.length) * 100) : 0;
-              return (
-                <div key={key}>
-                  <div className="flex justify-between text-sm text-gray-700">
-                    <span>{key}</span>
-                    <span>{count} ({pct}%)</span>
-                  </div>
-                  <div className="h-2 bg-gray-100 rounded">
-                    <div className="h-2 rounded bg-blue-500" style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
 
-      <div className="bg-white p-6 rounded-lg shadow-md">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-bold text-lg flex items-center gap-2"><Activity size={18}/> Trips Last 7 Days</h3>
-          <span className="text-xs text-gray-500">Created per day</span>
-        </div>
-        <div className="flex items-end gap-3 h-48">
-          {last7DaysData.days.map(day => {
-            const heightPct = (day.count / last7DaysData.max) * 100;
-            return (
-              <div key={day.label} className="flex-1 flex flex-col items-center justify-end">
-                <div className="w-full bg-blue-100 rounded-t">
-                  <div
-                    className="bg-blue-600 rounded-t"
-                    style={{ height: `${heightPct}%`, minHeight: day.count > 0 ? '12%' : '4%' }}
-                    title={`${day.count} trips`}
-                  />
-                </div>
-                <div className="text-xs text-gray-500 mt-2">{day.label}</div>
-              </div>
-            );
-          })}
+        {/* 3. Recent Activity */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-96 flex flex-col">
+             <div className="p-4 border-b border-slate-100 font-bold text-slate-800 flex items-center gap-2">
+               <Activity size={18} className="text-emerald-500"/> Recent Activity
+             </div>
+             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {recentTrips.length === 0 ? (
+                    <p className="text-slate-400 text-center text-sm">No recent activity.</p>
+                ) : (
+                    recentTrips.map(t => (
+                        <div key={t.id} className="flex items-start gap-3 pb-3 border-b border-slate-50 last:border-0">
+                           <div className={`mt-1 w-2 h-2 rounded-full flex-shrink-0 ${
+                               t.status === 'COMPLETED' ? 'bg-green-500' : 'bg-blue-500'
+                           }`} />
+                           <div>
+                              <p className="text-sm font-medium text-slate-800">Trip {t.surat_jalan_number}</p>
+                              <p className="text-xs text-slate-500">{t.origin} → {t.destination}</p>
+                              <p className="text-xs text-slate-400 mt-1">{new Date(t.created_at).toLocaleDateString()}</p>
+                           </div>
+                        </div>
+                    ))
+                )}
+             </div>
         </div>
       </div>
     </div>

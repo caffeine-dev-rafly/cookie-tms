@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Organization, User, Vehicle, Trip, Customer, Route, VehiclePosition, SuratJalanHistory
+from .models import Organization, User, Vehicle, Trip, Customer, Route, VehiclePosition, SuratJalanHistory, DeliveryProof
 
 
 def generate_surat_number():
@@ -65,6 +65,11 @@ class VehiclePositionSerializer(serializers.ModelSerializer):
         model = VehiclePosition
         fields = ['latitude', 'longitude', 'speed', 'heading', 'ignition', 'timestamp']
 
+class DeliveryProofSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DeliveryProof
+        fields = ['id', 'destination', 'proof_of_delivery', 'latitude', 'longitude', 'timestamp']
+
 # 4. Trip Serializer (The Money)
 class TripSerializer(serializers.ModelSerializer):
     # Include the calculated fields (Read Only)
@@ -73,6 +78,7 @@ class TripSerializer(serializers.ModelSerializer):
     profit = serializers.ReadOnlyField()
     destinations = serializers.ListField(child=serializers.CharField(), required=False)
     completed_destinations = serializers.ListField(child=serializers.CharField(), required=False)
+    delivery_proofs = DeliveryProofSerializer(many=True, read_only=True)
     
     # Show truck name instead of just ID
     vehicle_plate = serializers.CharField(source='vehicle.license_plate', read_only=True)
@@ -176,6 +182,24 @@ class SuratJalanHistorySerializer(serializers.ModelSerializer):
         fields = ['surat_jalan_number', 'changed_at']
 
 class UserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=False)
+
     class Meta:
         model = User
-        fields = ['id', 'username', 'role', 'phone', 'current_debt']
+        fields = ['id', 'username', 'role', 'phone', 'current_debt', 'password', 'organization']
+
+    def create(self, validated_data):
+        password = validated_data.pop('password', None)
+        user = super().create(validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        user = super().update(instance, validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user

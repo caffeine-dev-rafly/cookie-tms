@@ -3,4 +3,10 @@
 html, body, #root {
   height: 100%;
   margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+}
+
+.leaflet-container {
+    height: 100%;
+    width: 100%;
 }

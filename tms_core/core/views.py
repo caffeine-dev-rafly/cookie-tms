@@ -2,15 +2,36 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
+from rest_framework.authtoken.views import ObtainAuthToken
+from rest_framework.authtoken.models import Token
 from django.utils.dateparse import parse_date
 from datetime import datetime, timedelta, time
 from django.utils import timezone
 
-from .models import Vehicle, Trip, Customer, Route, User, VehiclePosition
+from .models import Vehicle, Trip, Customer, Route, User, VehiclePosition, Organization, DeliveryProof
 from .serializers import (
     VehicleSerializer, TripSerializer, UserSerializer, CustomerSerializer, 
-    RouteSerializer, VehiclePositionSerializer, SuratJalanHistorySerializer, generate_surat_number
+    RouteSerializer, VehiclePositionSerializer, SuratJalanHistorySerializer, generate_surat_number,
+    OrganizationSerializer
 )
+
+class CustomAuthToken(ObtainAuthToken):
+    def post(self, request, *args, **kwargs):
+        serializer = self.serializer_class(data=request.data,
+                                           context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        user = serializer.validated_data['user']
+        token, created = Token.objects.get_or_create(user=user)
+        return Response({
+            'token': token.key,
+            'user': {
+                'id': user.pk,
+                'username': user.username,
+                'role': user.role, # Assumes 'role' field exists on User model
+                'is_superuser': user.is_superuser,
+                'email': user.email
+            }
+        })
 
 class VehicleViewSet(viewsets.ModelViewSet):
     serializer_class = VehicleSerializer
@@ -78,16 +99,31 @@ class TripViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'], url_path='arrive')
     def mark_arrival(self, request, pk=None):
         """
-        Mark a destination as arrived. If all destinations are done, auto-complete the trip.
+        Mark a destination as arrived. Create DeliveryProof. 
+        If all destinations are done, auto-complete the trip.
         """
         trip = self.get_object()
         destination = request.data.get('destination')
+        proof_file = request.FILES.get('proof_of_delivery')
+        lat = request.data.get('last_latitude')
+        lon = request.data.get('last_longitude')
+
         if not destination:
             return Response({"error": "destination is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         destinations = trip.destinations or ([trip.destination] if trip.destination else [])
         if destination not in destinations:
             return Response({"error": "Destination not part of this trip"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create Delivery Proof
+        if proof_file:
+            DeliveryProof.objects.create(
+                trip=trip,
+                destination=destination,
+                proof_of_delivery=proof_file,
+                latitude=float(lat) if lat else None,
+                longitude=float(lon) if lon else None
+            )
 
         completed = trip.completed_destinations or []
         if destination not in completed:
@@ -97,8 +133,14 @@ class TripViewSet(viewsets.ModelViewSet):
         if trip.status == 'PLANNED':
             trip.status = 'OTW'
 
-        if len(set(completed)) >= len(destinations):
+        # Check for full completion
+        # Use set comparison for accuracy
+        all_dests = set(destinations)
+        completed_set = set(completed)
+        
+        if completed_set.issuperset(all_dests):
             trip.status = 'COMPLETED'
+            trip.completed_at = timezone.now()
 
         trip.save()
         return Response(TripSerializer(trip).data, status=status.HTTP_200_OK)
@@ -112,6 +154,16 @@ class RouteViewSet(viewsets.ModelViewSet):
     serializer_class = RouteSerializer
     permission_classes = [permissions.AllowAny]
     queryset = Route.objects.all()
+
+class OrganizationViewSet(viewsets.ModelViewSet):
+    serializer_class = OrganizationSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = Organization.objects.all()
+
+class UserViewSet(viewsets.ModelViewSet):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.AllowAny]
+    queryset = User.objects.all()
 
 class DriverViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.filter(role='DRIVER')

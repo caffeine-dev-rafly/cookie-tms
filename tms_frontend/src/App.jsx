@@ -1,50 +1,58 @@
+import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider } from './context/AuthContext';
-import SidebarLayout from './layouts/SidebarLayout';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import MainLayout from './layouts/MainLayout';
 
 // Pages
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import LiveMap from './pages/LiveMap';
-import HistoryPlayback from './pages/HistoryPlayback';
-import TripCreate from './pages/finance/TripCreate';
-import TripSettlement from './pages/finance/TripSettlement';
-import TripHistory from './pages/finance/TripHistory';
-import DriverTasks from './pages/DriverTasks';
-import Maintenance from './pages/mechanic/Maintenance';
-import CustomerList from './pages/admin/CustomerList';
-import RouteList from './pages/admin/RouteList';
+import Vehicles from './pages/Vehicles';
+import Drivers from './pages/Drivers';
+import RoutesPage from './pages/Routes';
+import Trips from './pages/Trips';
+import Dispatcher from './pages/Dispatcher';
+import Customers from './pages/Customers';
+import Profile from './pages/Profile';
+import MyTrips from './pages/driver/MyTrips';
+import { Settings } from './pages/Placeholders';
+
+const ProtectedRoute = ({ children }) => {
+  const { token, loading } = useAuth();
+  
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-500">Loading...</div>;
+  if (!token) return <Navigate to="/login" replace />;
+  
+  return children;
+};
 
 function App() {
   return (
-    <AuthProvider>
-      <BrowserRouter>
+    <BrowserRouter>
+      <AuthProvider>
         <Routes>
-          <Route path="/" element={<SidebarLayout />}>
+          <Route path="/login" element={<Login />} />
+          
+          <Route path="/" element={
+            <ProtectedRoute>
+              <MainLayout />
+            </ProtectedRoute>
+          }>
             <Route index element={<Dashboard />} />
             <Route path="map" element={<LiveMap />} />
-            <Route path="history" element={<HistoryPlayback />} />
-            <Route path="driver/tasks" element={<DriverTasks />} />
-            
-            {/* Departure (formerly Finance) */}
-            <Route path="departure/create-trip" element={<TripCreate />} />
-            <Route path="departure/history" element={<TripHistory />} />
-            <Route path="departure/settlement" element={<TripSettlement />} />
-            {/* Legacy routes fallback */}
-            <Route path="finance/create-trip" element={<Navigate to="/departure/create-trip" replace />} />
-            <Route path="finance/settlement" element={<Navigate to="/departure/settlement" replace />} />
-            
-            <Route path="mechanic/maintenance" element={<Maintenance />} />
-            
-            {/* Admin / Master Data */}
-            <Route path="admin/customers" element={<CustomerList />} />
-            <Route path="admin/routes" element={<RouteList />} />
-
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="vehicles" element={<Vehicles />} />
+            <Route path="drivers" element={<Drivers />} />
+            <Route path="routes" element={<RoutesPage />} />
+            <Route path="trips" element={<Trips />} />
+            <Route path="dispatcher" element={<Dispatcher />} />
+            <Route path="customers" element={<Customers />} />
+            <Route path="settings" element={<Settings />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="my-trips" element={<MyTrips />} />
           </Route>
         </Routes>
-      </BrowserRouter>
-    </AuthProvider>
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
 
