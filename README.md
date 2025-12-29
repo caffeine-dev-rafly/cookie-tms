@@ -34,6 +34,9 @@ We combine **Real-time GPS Tracking** (powered by Traccar) with **Business Intel
 
 ---
 
+## Screenshot
+![Live Map](tms_frontend/src/screenshoot/live.png)
+
 ---
 
 ## 🚀 Getting Started
@@ -56,4 +59,6 @@ cp .env.example .env
 docker-compose up -d --build
 
 # 4. Seed demo data (Optional - for testing)
-docker-compose exec web python manage.py loaddata demo_seed
+docker-compose exec web python manage.py loaddata demo_seedocker-compose exec web python manage.py loaddata demo_seedocker-compose exec web python manage.py loaddata demo_seed
+
+
