@@ -39,7 +39,7 @@ const Sidebar = () => {
         <div className={`w-8 h-8 ${logoBg} rounded-lg flex items-center justify-center mr-3 font-bold text-xl shadow-lg transition-colors`}>
           T
         </div>
-        <span className="font-bold text-lg tracking-wide">TMS Pro</span>
+        <span className="font-bold text-lg tracking-wide">Cookie TMS</span>
       </div>
 
       <div className="flex-1 overflow-y-auto py-4">

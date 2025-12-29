@@ -54,7 +54,7 @@ const Login = () => {
           <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center mb-4 text-white shadow-lg">
             <Truck size={32} />
           </div>
-          <h1 className="text-2xl font-bold text-slate-800">TMS Pro</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Cookie TMS</h1>
           <p className="text-slate-500">Sign in to your account</p>
         </div>
 
