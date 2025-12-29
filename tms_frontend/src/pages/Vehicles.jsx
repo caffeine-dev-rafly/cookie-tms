@@ -1,8 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import api from '../api/axios';
-import { Truck, CarFront, Plus, CirclePlus, X, Search, Filter, Edit, Edit2, Trash2, Trash } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { Truck, CarFront, Plus, X, Search, Filter, Edit, Edit2, Trash2, Trash, Eye } from 'lucide-react';
 
 const Vehicles = () => {
+  const { user } = useAuth();
+  const normalizedRole = (user?.role || '').toLowerCase();
+  const isReadOnly = user?.is_superuser;
+  const isOwner = normalizedRole === 'owner';
+  const organizationId = user?.organization_id;
+
   const [vehicles, setVehicles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -12,8 +19,9 @@ const Vehicles = () => {
     license_plate: '',
     vehicle_type: '',
     gps_device_id: '',
-    organization: 1 // Default
+    organization: organizationId || 1 // Default
   });
+  const [vehicleLimit, setVehicleLimit] = useState(0);
 
   // Helper for Hover Buttons
   const HoverButton = ({ icon: Icon, hoverIcon: HoverIcon, onClick, className, children }) => {
@@ -47,8 +55,33 @@ const Vehicles = () => {
     fetchVehicles();
   }, []);
 
+  useEffect(() => {
+    if (!organizationId) return;
+    const fetchOrg = async () => {
+      try {
+        const res = await api.get(`organizations/${organizationId}/`);
+        setVehicleLimit(res.data?.vehicle_limit ?? 0);
+      } catch (error) {
+        console.error("Error fetching organization info:", error);
+      }
+    };
+    fetchOrg();
+  }, [organizationId]);
+
+  useEffect(() => {
+    setFormData(prev => ({ ...prev, organization: organizationId || prev.organization }));
+  }, [organizationId]);
+
+  const reachedVehicleLimit = useMemo(() => {
+    return isOwner && vehicleLimit > 0 && vehicles.length >= vehicleLimit;
+  }, [isOwner, vehicleLimit, vehicles.length]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!isEditing && reachedVehicleLimit) {
+      alert('Vehicle limit reached for your organization. Contact admin to increase the cap.');
+      return;
+    }
     try {
       if (isEditing) {
         await api.patch(`vehicles/${formData.id}/`, formData);
@@ -88,7 +121,7 @@ const Vehicles = () => {
   };
 
   const resetForm = () => {
-    setFormData({ id: null, license_plate: '', vehicle_type: '', gps_device_id: '', organization: 1 });
+    setFormData({ id: null, license_plate: '', vehicle_type: '', gps_device_id: '', organization: organizationId || 1 });
     setIsEditing(false);
   };
 
@@ -98,16 +131,36 @@ const Vehicles = () => {
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Fleet Management</h1>
             <p className="text-slate-500 text-sm">Manage your vehicle inventory and devices.</p>
+            {isOwner && (
+              <p className="text-sm text-slate-600 mt-1">
+                Fleet allocation: {vehicles.length} / {vehicleLimit > 0 ? vehicleLimit : 'Unlimited'}
+              </p>
+            )}
           </div>
-          <HoverButton 
-            icon={Plus} 
-            hoverIcon={CirclePlus} 
-            onClick={() => { resetForm(); setShowModal(true); }} 
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-medium flex items-center gap-2 transition-colors shadow-sm"
-          >
-            Add Vehicle
-          </HoverButton>
+          {isReadOnly ? (
+             <div className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold border border-amber-200">
+                Read-Only View
+             </div>
+          ) : (
+            <button
+                onClick={() => { resetForm(); setShowModal(true); }}
+                disabled={reachedVehicleLimit}
+                className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-lg font-medium transition-colors shadow-sm ${
+                  reachedVehicleLimit
+                    ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white'
+                }`}
+            >
+                <Plus size={18} />
+                Add Vehicle
+            </button>
+          )}
        </header>
+       {reachedVehicleLimit && (
+         <p className="text-xs text-red-500 mb-4">
+           Fleet limit reached. Ask a super admin to increase the vehicle limit before adding more units.
+         </p>
+       )}
 
        {/* Content */}
        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
@@ -166,8 +219,16 @@ const Vehicles = () => {
                          {v.last_updated ? new Date(v.last_updated).toLocaleString() : 'Never'}
                       </td>
                       <td className="p-4 text-right space-x-2 flex justify-end">
-                         <HoverButton onClick={() => openEdit(v)} icon={Edit} hoverIcon={Edit2} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded transition-colors" />
-                         <HoverButton onClick={() => handleDelete(v.id)} icon={Trash2} hoverIcon={Trash} className="text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors" />
+                         {isReadOnly ? (
+                             <button className="text-slate-400 hover:text-blue-600 p-1.5" title="View Details">
+                                <Eye size={18} />
+                             </button>
+                         ) : (
+                             <>
+                                <HoverButton onClick={() => openEdit(v)} icon={Edit} hoverIcon={Edit2} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded transition-colors" />
+                                <HoverButton onClick={() => handleDelete(v.id)} icon={Trash2} hoverIcon={Trash} className="text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors" />
+                             </>
+                         )}
                       </td>
                     </tr>
                   ))

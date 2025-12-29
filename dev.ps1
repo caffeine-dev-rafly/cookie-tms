@@ -19,9 +19,7 @@ Assert-Command npm
 
 if ($Stop) {
     Write-Host "`nStopping backend stack via docker compose..." -ForegroundColor Cyan
-    Push-Location tms_core
     docker compose down
-    Pop-Location
 
     Write-Host "`nIf the frontend dev server is running, close its PowerShell window to stop it." -ForegroundColor Yellow
     return
@@ -29,9 +27,11 @@ if ($Stop) {
 
 # Start backend stack (Django + Postgres + Redis + Traccar) in Docker
 Write-Host "`nStarting backend stack via docker compose..." -ForegroundColor Cyan
-Push-Location tms_core
 docker compose up -d
-Pop-Location
+
+Write-Host "`nApplying backend migrations..." -ForegroundColor Cyan
+docker compose exec -T web python manage.py migrate
+docker compose exec -T master-api python manage.py migrate
 
 # Frontend deps (once)
 if (-not $SkipFrontendInstall) {

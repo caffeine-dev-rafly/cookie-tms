@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils import timezone
-from .models import Organization, User, Vehicle, Trip, Customer, Route, VehiclePosition, SuratJalanHistory, DeliveryProof
+from .models import Organization, User, Vehicle, Trip, Customer, Route, Origin, VehiclePosition, SuratJalanHistory, DeliveryProof, Notification
 
 
 def generate_surat_number():
@@ -23,7 +23,7 @@ def generate_surat_number():
 class OrganizationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Organization
-        fields = ['id', 'name', 'address']
+        fields = ['id', 'name', 'address', 'subscription_end_date', 'is_active', 'driver_limit', 'vehicle_limit']
 
 # 2. Master Data Serializers
 class CustomerSerializer(serializers.ModelSerializer):
@@ -34,6 +34,12 @@ class CustomerSerializer(serializers.ModelSerializer):
 class RouteSerializer(serializers.ModelSerializer):
     class Meta:
         model = Route
+        fields = '__all__'
+
+# 3. Origin Serializer
+class OriginSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Origin
         fields = '__all__'
 
 # 3. Vehicle Serializer
@@ -47,12 +53,31 @@ class VehicleSerializer(serializers.ModelSerializer):
             'id', 'license_plate', 'vehicle_type', 'gps_device_id', 
             'last_latitude', 'last_longitude', 'last_updated', 
             'last_heading', 'last_speed', 'last_ignition',
+            'device_status', 'device_status_changed_at',
+            'stopped_since', 'last_gps_sync',
             'current_odometer', 'last_service_odometer',
             'stnk_expiry', 'kir_expiry', 'tax_expiry',
             'computed_status'
         ]
 
     def get_computed_status(self, obj):
+        # Webhook-driven status overrides other heuristics
+        if obj.device_status == 'OFFLINE':
+            return 'OFFLINE'
+
+        # 1. Check Offline first
+        if obj.last_gps_sync:
+            # Use user config or default 10 minutes
+            threshold_minutes = obj.user.offline_alert_minutes if (hasattr(obj, 'user') and obj.user) else 10
+            # If vehicle organization owner overrides default
+            if not getattr(obj, 'user', None) and obj.organization:
+                 # Try to find owner config - optional, for now hardcode 10 or check if obj has a related user config
+                 pass
+            
+            elapsed = (timezone.now() - obj.last_gps_sync).total_seconds() / 60
+            if elapsed > threshold_minutes:
+                return 'OFFLINE'
+
         if obj.last_speed > 10:
             return 'MOVING'
         elif obj.last_ignition and obj.last_speed <= 10:
@@ -76,6 +101,15 @@ class TripSerializer(serializers.ModelSerializer):
     total_expense = serializers.ReadOnlyField()
     balance = serializers.ReadOnlyField()
     profit = serializers.ReadOnlyField()
+    final_profit = serializers.ReadOnlyField()
+    invoiced = serializers.SerializerMethodField()
+    customers = serializers.PrimaryKeyRelatedField(queryset=Customer.objects.all(), many=True, required=False)
+    origin_location = serializers.PrimaryKeyRelatedField(queryset=Origin.objects.all(), allow_null=True, required=False)
+    customer_names = serializers.SerializerMethodField()
+    origin_location_name = serializers.SerializerMethodField()
+    origin_location_address = serializers.SerializerMethodField()
+    origin_location_latitude = serializers.SerializerMethodField()
+    origin_location_longitude = serializers.SerializerMethodField()
     destinations = serializers.ListField(child=serializers.CharField(), required=False)
     completed_destinations = serializers.ListField(child=serializers.CharField(), required=False)
     delivery_proofs = DeliveryProofSerializer(many=True, read_only=True)
@@ -100,7 +134,7 @@ class TripSerializer(serializers.ModelSerializer):
             destinations = [legacy_dest]
         completed = attrs.get('completed_destinations') or (instance.completed_destinations if instance else [])
 
-        active_statuses = ['PLANNED', 'OTW']
+        active_statuses = ['PLANNED', 'OTW', 'ARRIVED']
         qs = Trip.objects.filter(status__in=active_statuses)
         if instance:
             qs = qs.exclude(pk=instance.pk)
@@ -121,6 +155,13 @@ class TripSerializer(serializers.ModelSerializer):
             extra = [d for d in completed if d not in destinations]
             if extra:
                 raise serializers.ValidationError("Completed destinations must be part of the assigned destinations.")
+
+        if 'customers' in attrs and not attrs.get('customer'):
+            customers = attrs.get('customers') or []
+            attrs['customer'] = customers[0] if customers else None
+
+        if attrs.get('origin_location') and not attrs.get('origin'):
+            attrs['origin'] = attrs['origin_location'].name
 
         return super().validate(attrs)
 
@@ -175,6 +216,27 @@ class TripSerializer(serializers.ModelSerializer):
 
         return instance
 
+    def get_customer_names(self, obj):
+        names = [c.name for c in obj.customers.all()]
+        if not names and obj.customer_id:
+            names = [obj.customer.name]
+        return names
+
+    def get_origin_location_name(self, obj):
+        return obj.origin_location.name if obj.origin_location else None
+
+    def get_origin_location_address(self, obj):
+        return obj.origin_location.address if obj.origin_location else None
+
+    def get_origin_location_latitude(self, obj):
+        return obj.origin_location.latitude if obj.origin_location else None
+
+    def get_origin_location_longitude(self, obj):
+        return obj.origin_location.longitude if obj.origin_location else None
+
+    def get_invoiced(self, obj):
+        return bool(getattr(obj, 'invoice_id', None))
+
 
 class SuratJalanHistorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -183,10 +245,90 @@ class SuratJalanHistorySerializer(serializers.ModelSerializer):
 
 class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False)
+    computed_role = serializers.SerializerMethodField()
+    organization_status = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'role', 'phone', 'current_debt', 'password', 'organization']
+        fields = [
+            'id', 'username', 'first_name', 'last_name', 'role', 'computed_role', 
+            'phone', 'current_debt', 'stop_alert_minutes', 'offline_alert_minutes',
+            'password', 'organization', 'organization_status'
+        ]
+
+    def get_computed_role(self, user):
+        # Role Logic matching CustomTokenObtainPairSerializer
+        if user.is_superuser:
+            return "super_admin"
+        elif user.role == 'OWNER' or user.groups.filter(name="Client Manager").exists():
+            return "owner"
+        elif user.role == 'FINANCE':
+            return "finance"
+        elif user.is_staff:
+            return "staff"
+        else:
+            return "driver"
+
+    def get_organization_status(self, user):
+        if not user.organization:
+            return 'active'
+        
+        days_remaining = user.organization.get_days_remaining()
+        if not user.organization.is_active:
+            return 'suspended'
+        elif user.organization.subscription_end_date and days_remaining is not None and days_remaining < 0:
+            return 'expired'
+        elif days_remaining is not None and days_remaining <= 3:
+            return 'expiring'
+        return 'active'
+
+    def validate(self, attrs):
+        request = self.context.get('request')
+        role = attrs.get('role') or getattr(self.instance, 'role', None)
+        stop_minutes = attrs.get('stop_alert_minutes')
+        offline_minutes = attrs.get('offline_alert_minutes')
+
+        for value in [stop_minutes, offline_minutes]:
+            if value is not None and value <= 0:
+                raise serializers.ValidationError("Alert minutes must be greater than zero.")
+
+        if request and not request.user.is_superuser:
+            # If editing existing user, skip owner/org checks if role/org not changing
+            # But for simplicity, we keep the logic: only superuser creates OWNER.
+            if not self.instance: # Creation
+                if attrs.get('role') == 'OWNER':
+                    raise serializers.ValidationError("Owners can only create staff, finance, or driver users.")
+                attrs['organization'] = request.user.organization
+
+        organization = attrs.get('organization') or getattr(self.instance, 'organization', None)
+
+        if role in ['ADMIN', 'FINANCE'] and not organization:
+            raise serializers.ValidationError("Organization is required for staff/finance users.")
+
+        if role == 'DRIVER' and organization and organization.driver_limit:
+            qs = User.objects.filter(organization=organization, role='DRIVER')
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.count() >= organization.driver_limit:
+                raise serializers.ValidationError("Driver limit reached for this organization. Increase the cap to add more drivers.")
+
+        return super().validate(attrs)
+
+    def _apply_staff_flags(self, user_obj):
+        """
+        Set Django flags based on role.
+        """
+        if user_obj.is_superuser:
+            user_obj.is_staff = True
+            user_obj.save(update_fields=['is_staff'])
+            return
+
+        role = user_obj.role
+        if role in ['ADMIN', 'FINANCE', 'OWNER']:
+            user_obj.is_staff = True
+        else:
+            user_obj.is_staff = False
+        user_obj.save(update_fields=['is_staff'])
 
     def create(self, validated_data):
         password = validated_data.pop('password', None)
@@ -194,6 +336,7 @@ class UserSerializer(serializers.ModelSerializer):
         if password:
             user.set_password(password)
             user.save()
+        self._apply_staff_flags(user)
         return user
 
     def update(self, instance, validated_data):
@@ -202,4 +345,29 @@ class UserSerializer(serializers.ModelSerializer):
         if password:
             user.set_password(password)
             user.save()
+        self._apply_staff_flags(user)
         return user
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ['id', 'message', 'is_read', 'category', 'reference_id', 'created_at']
+
+    def update(self, instance, validated_data):
+        password = validated_data.pop('password', None)
+        user = super().update(instance, validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        self._apply_staff_flags(user)
+        return user
+
+from .models import ActivityLog
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.username', read_only=True)
+
+    class Meta:
+        model = ActivityLog
+        fields = ['id', 'user', 'user_name', 'action', 'details', 'ip_address', 'created_at']

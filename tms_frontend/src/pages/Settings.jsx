@@ -1,16 +1,21 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/axios';
-import { Building2, Save, User, Plus, X, Trash2, Edit, Edit2, Shield, CirclePlus, Trash } from 'lucide-react';
+import { Building2, Save, User, Plus, X, Trash2, Edit, Edit2, Shield, CirclePlus, Trash, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const Settings = () => {
-  const { user } = useAuth(); // Logged in user info
+  const { user, updateUser } = useAuth(); // Logged in user info
   const [org, setOrg] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   
   // Organization Form State
   const [orgForm, setOrgForm] = useState({ name: '', address: '' });
+  const [alertForm, setAlertForm] = useState({
+      stop_alert_minutes: user?.stop_alert_minutes ? String(user.stop_alert_minutes) : '5',
+      offline_alert_minutes: user?.offline_alert_minutes ? String(user.offline_alert_minutes) : '10'
+  });
+  const [savingAlert, setSavingAlert] = useState(false);
   
   // User Modal State
   const [showUserModal, setShowUserModal] = useState(false);
@@ -43,8 +48,12 @@ const Settings = () => {
 
   const fetchData = async () => {
     try {
-      // Fetch Org (assuming ID 1 for prototype or from user profile)
-      const orgId = 1; // Simplification
+      const orgId = user?.organization_id || 1;
+      if (!orgId) {
+        setLoading(false);
+        return;
+      }
+
       const [orgRes, usersRes] = await Promise.all([
           api.get(`organizations/${orgId}/`),
           api.get('users/')
@@ -52,6 +61,14 @@ const Settings = () => {
       setOrg(orgRes.data);
       setOrgForm({ name: orgRes.data.name, address: orgRes.data.address });
       setUsers(usersRes.data);
+
+      if (user?.id) {
+        const meRes = await api.get(`users/${user.id}/`);
+        setAlertForm({
+          stop_alert_minutes: String(meRes.data?.stop_alert_minutes || 5),
+          offline_alert_minutes: String(meRes.data?.offline_alert_minutes || 10)
+        });
+      }
     } catch (error) {
       console.error("Error fetching settings:", error);
     } finally {
@@ -61,7 +78,7 @@ const Settings = () => {
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [user?.id, user?.organization_id]);
 
   const handleOrgSave = async (e) => {
       e.preventDefault();
@@ -72,6 +89,30 @@ const Settings = () => {
       } catch (error) {
           console.error(error);
           alert('Failed to update organization.');
+      }
+  };
+
+  const handleAlertSave = async (e) => {
+      e.preventDefault();
+      if (!user?.id) return;
+      setSavingAlert(true);
+      try {
+          const payload = {
+              stop_alert_minutes: Math.max(1, parseInt(alertForm.stop_alert_minutes, 10) || 1),
+              offline_alert_minutes: Math.max(1, parseInt(alertForm.offline_alert_minutes, 10) || 1)
+          };
+          await api.patch(`users/${user.id}/`, payload);
+          updateUser(payload);
+          setAlertForm({
+              stop_alert_minutes: String(payload.stop_alert_minutes),
+              offline_alert_minutes: String(payload.offline_alert_minutes)
+          });
+          alert('Alert thresholds updated!');
+      } catch (error) {
+          console.error('Failed to update alert thresholds:', error);
+          alert('Failed to update alert thresholds.');
+      } finally {
+          setSavingAlert(false);
       }
   };
 
@@ -218,6 +259,54 @@ const Settings = () => {
                         </tbody>
                     </table>
                 </div>
+        </div>
+        </div>
+
+        <div className="mt-8">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 max-w-3xl">
+                <div className="flex items-center gap-3 mb-6">
+                    <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center text-amber-600">
+                        <AlertTriangle size={24} />
+                    </div>
+                    <div>
+                        <h2 className="font-bold text-lg text-slate-800">Alert thresholds</h2>
+                        <p className="text-sm text-slate-500">Choose how long a vehicle can stay idle or offline before you are notified.</p>
+                    </div>
+                </div>
+                <form onSubmit={handleAlertSave} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Stopped vehicle (minutes)</label>
+                        <input
+                            type="number"
+                            min="1"
+                            className="w-full px-3 py-2 border rounded-lg"
+                            value={alertForm.stop_alert_minutes}
+                            onChange={e => setAlertForm(prev => ({ ...prev, stop_alert_minutes: e.target.value }))}
+                        />
+                        <p className="text-xs text-slate-400 mt-1">Alert when assigned trucks stop longer than this window.</p>
+                    </div>
+                    <div>
+                        <label className="block text-sm font-medium mb-1">GPS offline (minutes)</label>
+                        <input
+                            type="number"
+                            min="1"
+                            className="w-full px-3 py-2 border rounded-lg"
+                            value={alertForm.offline_alert_minutes}
+                            onChange={e => setAlertForm(prev => ({ ...prev, offline_alert_minutes: e.target.value }))}
+                        />
+                        <p className="text-xs text-slate-400 mt-1">Alert when we stop receiving data from the device.</p>
+                    </div>
+                    <div className="md:col-span-2 flex justify-end">
+                        <button
+                            type="submit"
+                            disabled={savingAlert}
+                            className="flex items-center gap-2 bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white px-4 py-2 rounded-lg font-medium transition-colors"
+                        >
+                            <Save size={18} />
+                            {savingAlert ? 'Saving...' : 'Save thresholds'}
+                        </button>
+                    </div>
+                </form>
             </div>
         </div>
 

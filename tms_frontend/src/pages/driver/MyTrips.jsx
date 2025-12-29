@@ -18,13 +18,25 @@ const MyTrips = () => {
   const fetchTrips = async () => {
     try {
       const response = await api.get('trips/');
-      // Fallback to username matching if user.id is missing (legacy token)
-      const myTrips = response.data.filter(t => t.driver === user?.id || t.driver_name === user?.username);
-      // Sort: Active (OTW) first, then Planned, then Completed
-      const sorted = myTrips.sort((a, b) => {
-        const statusOrder = { 'OTW': 0, 'PLANNED': 1, 'COMPLETED': 2, 'CANCELLED': 3 };
-        return (statusOrder[a.status] || 99) - (statusOrder[b.status] || 99);
+      const allTrips = Array.isArray(response.data) ? response.data : response.data?.results || [];
+
+      const toId = (value) => (value && typeof value === 'object' ? value.id : value);
+      const myTrips = allTrips.filter((t) => {
+        const driverId = user?.id;
+        const tripDriverId = toId(t.driver);
+        if (driverId) return tripDriverId === driverId;
+        return t.driver_name === user?.username || t.driverName === user?.username;
       });
+
+      // Current trips only (history lives in the "History" menu)
+      const current = myTrips.filter((t) => ['OTW', 'PLANNED', 'ARRIVED'].includes(t.status));
+
+      // Sort: Active (OTW/ARRIVED) first, then Planned
+      const sorted = current.sort((a, b) => {
+        const statusOrder = { OTW: 0, ARRIVED: 0, PLANNED: 1 };
+        return (statusOrder[a.status] ?? 99) - (statusOrder[b.status] ?? 99);
+      });
+
       setTrips(sorted);
     } catch (error) {
       console.error("Error fetching trips:", error);
@@ -84,7 +96,7 @@ const MyTrips = () => {
           <p className="text-slate-500 text-sm">Manage your assigned deliveries</p>
         </div>
         <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg text-sm font-medium">
-          {trips.filter(t => t.status === 'OTW').length} Active
+          {trips.filter((t) => ['OTW', 'ARRIVED'].includes(t.status)).length} Active
         </div>
       </header>
 
@@ -92,8 +104,8 @@ const MyTrips = () => {
         {trips.length === 0 ? (
           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-300">
             <Truck className="mx-auto h-12 w-12 text-slate-300 mb-3" />
-            <h3 className="text-lg font-medium text-slate-600">No trips assigned</h3>
-            <p className="text-slate-400 text-sm">You currently have no pending deliveries.</p>
+            <h3 className="text-lg font-medium text-slate-600">No current trips</h3>
+            <p className="text-slate-400 text-sm">When you have assigned trips, they will appear here.</p>
           </div>
         ) : (
           trips.map((trip) => (
@@ -144,7 +156,7 @@ const MyTrips = () => {
                          {trip.destinations && trip.destinations.length > 0 ? (
                             trip.destinations.map((dest, idx) => {
                                 const isCompleted = trip.completed_destinations?.includes(dest);
-                                const isNext = !isCompleted && trip.status === 'OTW'; // Simplified logic: Allow arriving at any pending
+                                const isNext = !isCompleted && ['OTW', 'ARRIVED'].includes(trip.status);
 
                                 return (
                                     <div key={idx} className="flex items-start gap-3">
@@ -168,7 +180,7 @@ const MyTrips = () => {
                                             </div>
                                             
                                             {/* Action Button for this Drop */}
-                                            {trip.status === 'OTW' && !isCompleted && (
+                                            {['OTW', 'ARRIVED'].includes(trip.status) && !isCompleted && (
                                                 <button 
                                                     onClick={() => handleArriveClick(trip, dest)}
                                                     className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold shadow-sm transition-all active:scale-95"
@@ -192,7 +204,7 @@ const MyTrips = () => {
                                          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Destination</p>
                                          <p className="font-medium text-slate-800">{trip.destination}</p>
                                     </div>
-                                    {trip.status === 'OTW' && (
+                                    {['OTW', 'ARRIVED'].includes(trip.status) && (
                                          <button 
                                             onClick={() => handleArriveClick(trip, trip.destination)}
                                             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-xs px-4 py-2 rounded-lg font-bold shadow-sm transition-all active:scale-95"
@@ -264,6 +276,7 @@ const StatusBadge = ({ status }) => {
   const styles = {
     PLANNED: 'bg-slate-100 text-slate-600',
     OTW: 'bg-blue-100 text-blue-700',
+    ARRIVED: 'bg-amber-100 text-amber-700',
     COMPLETED: 'bg-green-100 text-green-700',
     CANCELLED: 'bg-red-100 text-red-700',
   };

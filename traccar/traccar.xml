@@ -10,4 +10,11 @@
     <entry key='forward.enable'>true</entry>
     <entry key='forward.url'>http://web:8000/api/forward-gps/?id={uniqueId}&amp;lat={latitude}&amp;lon={longitude}&amp;course={course}</entry>
     <entry key='forward.json'>false</entry>
+    
+    <!-- Status Timeout: Mark offline after 60 seconds of silence -->
+    <entry key='status.timeout'>60</entry>
+
+    <!-- Event Forwarding (To Django) -->
+    <entry key='event.forward.enable'>true</entry>
+    <entry key='event.forward.url'>http://django-web:8000/api/integrations/traccar/webhook/</entry>
 </properties>

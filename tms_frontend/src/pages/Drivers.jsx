@@ -1,8 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import api from '../api/axios';
-import { User, Plus, CirclePlus, X, Search, Trash2, Trash, Edit, Edit2, MapPin } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { User, Plus, CirclePlus, X, Search, Trash2, Trash, Edit, Edit2, MapPin, Eye } from 'lucide-react';
 
 const Drivers = () => {
+  const { user } = useAuth();
+  const isReadOnly = user?.is_superuser;
+
   const [drivers, setDrivers] = useState([]);
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -101,7 +105,7 @@ const Drivers = () => {
   // Map drivers to active trips
   const driverTripMap = {};
   trips.forEach(t => {
-      if (['PLANNED', 'OTW'].includes(t.status) && t.driver) {
+      if (['PLANNED', 'OTW', 'ARRIVED'].includes(t.status) && t.driver) {
           driverTripMap[t.driver] = t;
       }
   });
@@ -110,14 +114,20 @@ const Drivers = () => {
     <div className="p-6 h-full flex flex-col">
        <header className="flex justify-between items-center mb-6">
           <h1 className="text-2xl font-bold text-slate-800">Driver Management</h1>
-          <HoverButton 
-            icon={Plus} 
-            hoverIcon={CirclePlus} 
-            onClick={() => { resetForm(); setShowModal(true); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-sm transition-all"
-          >
-            Add Driver
-          </HoverButton>
+          {isReadOnly ? (
+             <div className="px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-bold border border-amber-200">
+                Read-Only View
+             </div>
+          ) : (
+            <HoverButton 
+                icon={Plus} 
+                hoverIcon={CirclePlus} 
+                onClick={() => { resetForm(); setShowModal(true); }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg flex items-center gap-2 shadow-sm transition-all"
+            >
+                Add Driver
+            </HoverButton>
+          )}
        </header>
 
        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
@@ -159,7 +169,9 @@ const Drivers = () => {
                           {activeTrip ? (
                               <div className="flex flex-col gap-1">
                                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-bold w-fit ${
-                                      activeTrip.status === 'OTW' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'
+                                      activeTrip.status === 'OTW' ? 'bg-blue-100 text-blue-700' :
+                                      activeTrip.status === 'ARRIVED' ? 'bg-amber-100 text-amber-700' :
+                                      'bg-slate-100 text-slate-700'
                                   }`}>
                                       {activeTrip.status}
                                   </span>
@@ -173,8 +185,16 @@ const Drivers = () => {
                           )}
                       </td>
                       <td className="p-4 text-right space-x-2 flex justify-end">
-                         <HoverButton onClick={() => openEdit(d)} icon={Edit} hoverIcon={Edit2} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded transition-colors" />
-                         <HoverButton onClick={() => handleDelete(d.id)} icon={Trash2} hoverIcon={Trash} className="text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors" />
+                         {isReadOnly ? (
+                             <button className="text-slate-400 hover:text-blue-600 p-1.5" title="View Details">
+                                <Eye size={18} />
+                             </button>
+                         ) : (
+                             <>
+                                <HoverButton onClick={() => openEdit(d)} icon={Edit} hoverIcon={Edit2} className="text-blue-600 hover:bg-blue-50 p-1.5 rounded transition-colors" />
+                                <HoverButton onClick={() => handleDelete(d.id)} icon={Trash2} hoverIcon={Trash} className="text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors" />
+                             </>
+                         )}
                       </td>
                     </tr>
                   );

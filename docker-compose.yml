@@ -15,6 +15,13 @@ services:
     ports:
       - "5432:5432"
 
+  # 1.5 REDIS (The Message Broker)
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
   # 2. TRACCAR (The Eyes)
   traccar:
     image: traccar/traccar:latest
@@ -30,13 +37,14 @@ services:
   # 3. CLIENT CORE (The Regular Backend - Port 8000)
   web:
     build: ./tms_core
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./tms_core:/app
     ports:
       - "8000:8000"
     depends_on:
       - db
+      - redis
     environment:
       - DB_NAME=tms_core_db # <--- Uses Client DB
       - DB_USER=rafly
@@ -46,7 +54,7 @@ services:
   # 4. SUPER ADMIN (God Mode - Port 9000)
   master-api:
     build: ./tms_master
-    command: python manage.py runserver 0.0.0.0:8000
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
     volumes:
       - ./tms_master:/app
       - /var/run/docker.sock:/var/run/docker.sock # <--- Grants power to see Docker
@@ -54,6 +62,7 @@ services:
       - "9000:8000" # <--- Maps internal 8000 to external 9000
     depends_on:
       - db
+      - redis
     environment:
       - DB_NAME=tms_master_db # <--- Uses Master DB
       - CLIENT_DB_NAME=tms_core_db # <--- Reads Client DB

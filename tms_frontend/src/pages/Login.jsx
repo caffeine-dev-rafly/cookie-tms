@@ -10,6 +10,13 @@ const Login = () => {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    const disabledReason = sessionStorage.getItem('accountDisabledReason');
+    if (disabledReason) {
+      setError(disabledReason);
+    }
+  }, []);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -21,7 +28,22 @@ const Login = () => {
         navigate('/');
       }
     } catch (err) {
-      setError('Invalid credentials. Please try again.');
+      const detail = err.response?.data?.detail;
+      const isSubscriptionExpired = detail === 'Subscription Expired. Contact Support.';
+      const isSuspended = detail === 'Account Suspended. Contact Support.';
+      if (isSubscriptionExpired || isSuspended) {
+        const reason = isSubscriptionExpired 
+          ? 'Your subscription has expired. Please contact support to regain access.'
+          : 'Your account has been suspended. Please contact support for assistance.';
+        sessionStorage.setItem('accountDisabledReason', reason);
+        navigate('/disabled');
+        return;
+      }
+      if (detail) {
+        setError(detail);
+      } else {
+        setError('Invalid credentials. Please try again.');
+      }
     }
   };
 

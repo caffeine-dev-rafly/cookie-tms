@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { LogOut } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { MENU_ITEMS } from '../config/menuConfig';
@@ -7,6 +7,7 @@ import { MENU_ITEMS } from '../config/menuConfig';
 const Sidebar = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [hoveredLogout, setHoveredLogout] = useState(false);
 
   const handleLogout = () => {
@@ -18,10 +19,24 @@ const Sidebar = () => {
   const userRole = user?.role || 'driver'; 
   const filteredItems = MENU_ITEMS.filter(item => item.allowed_roles.includes(userRole));
 
+  const isPathActive = (path, exactMatch = false) => {
+    if (path === '/') return location.pathname === '/';
+    if (exactMatch) return location.pathname === path;
+    return location.pathname === path || location.pathname.startsWith(`${path}/`);
+  };
+
+  const hasChildPath = (path) =>
+    filteredItems.some((item) => item.path !== path && item.path.startsWith(`${path}/`));
+  
+  // God Mode Styling
+  const isGodMode = userRole === 'super_admin';
+  const sidebarBg = isGodMode ? 'bg-slate-950 border-r border-red-900/20' : 'bg-slate-900';
+  const logoBg = isGodMode ? 'bg-red-600' : 'bg-blue-500';
+
   return (
-    <div className="h-screen w-64 bg-slate-900 text-white flex flex-col shadow-lg transition-all duration-300 flex-shrink-0">
+    <div className={`h-screen w-64 ${sidebarBg} text-white flex flex-col shadow-lg transition-all duration-300 flex-shrink-0`}>
       <div className="p-6 flex items-center border-b border-slate-700">
-        <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center mr-3 font-bold text-xl shadow-lg">
+        <div className={`w-8 h-8 ${logoBg} rounded-lg flex items-center justify-center mr-3 font-bold text-xl shadow-lg transition-colors`}>
           T
         </div>
         <span className="font-bold text-lg tracking-wide">TMS Pro</span>
@@ -29,23 +44,22 @@ const Sidebar = () => {
 
       <div className="flex-1 overflow-y-auto py-4">
         <nav className="px-3 space-y-1">
-          {filteredItems.map((item) => (
-            <NavLink
-              key={item.label + item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group relative ${
+          {filteredItems.map((item) => {
+            const isActive = isPathActive(item.path, hasChildPath(item.path));
+            return (
+              <NavLink
+                key={item.label + item.path}
+                to={item.path}
+                className={`flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 group relative ${
                   isActive
                     ? 'bg-blue-600 text-white shadow-md'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                }`
-              }
-            >
-              {({ isActive }) => (
+                }`}
+              >
                 <NavItemContent item={item} isActive={isActive} />
-              )}
-            </NavLink>
-          ))}
+              </NavLink>
+            );
+          })}
         </nav>
       </div>
 

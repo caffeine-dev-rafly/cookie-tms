@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 
 from pathlib import Path
 import os 
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -37,6 +38,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'rest_framework_simplejwt',
     'core',
+    'finance',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -58,6 +60,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.RequestMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -88,12 +91,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # REPLACE THE ENTIRE DATABASES SECTION WITH THIS:
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.environ.get('DB_NAME', 'tms_core_db'),
-        'USER': os.environ.get('DB_USER', 'rafly'),
-        'PASSWORD': os.environ.get('DB_PASSWORD', 'raflypassword'),
-        'HOST': os.environ.get('DB_HOST', 'db'),
-        'PORT': '5432',
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
 
@@ -152,3 +151,18 @@ CORS_ALLOWED_ORIGINS = [
 TRACCAR_URL = "http://traccar:8082"  # Internal Docker Address
 TRACCAR_USER = "admin@admin.com"
 TRACCAR_PASSWORD = "admin"
+
+# CELERY CONFIGURATION
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+CELERY_TIMEZONE = TIME_ZONE
+
+CELERY_BEAT_SCHEDULE = {
+    'sync-device-statuses-15m': {
+        'task': 'core.tasks.sync_device_statuses',
+        'schedule': crontab(minute='*/15'),
+    },
+}
+
+# Optional webhook token for Traccar -> Django pushes
+TRACCAR_WEBHOOK_TOKEN = os.environ.get('TRACCAR_WEBHOOK_TOKEN')

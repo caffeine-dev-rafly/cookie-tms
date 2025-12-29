@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import Organization, Vehicle, Customer, Route, Trip
+from .models import Organization, Vehicle, Customer, Route, Origin, Trip
 
 # Get the custom user model (core_user)
 User = get_user_model()
@@ -58,6 +58,10 @@ class CustomerAdmin(SaaSAdmin):
 @admin.register(Route)
 class RouteAdmin(SaaSAdmin):
     list_display = ('origin', 'destination', 'standard_distance_km')
+
+@admin.register(Origin)
+class OriginAdmin(SaaSAdmin):
+    list_display = ('name', 'address', 'latitude', 'longitude', 'radius', 'traccar_id', 'is_origin')
 
 @admin.register(Trip)
 class TripAdmin(SaaSAdmin):

@@ -5,6 +5,7 @@ import { ClipboardList, ClipboardCheck, Plus, CirclePlus, X, Search, Trash2, Tra
 const Trips = () => {
   const [trips, setTrips] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   
@@ -12,6 +13,9 @@ const Trips = () => {
   const [vehicles, setVehicles] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [customers, setCustomers] = useState([]);
+  const [origins, setOrigins] = useState([]);
+  const [routes, setRoutes] = useState([]);
+  const [selectedRouteId, setSelectedRouteId] = useState('');
   
   // Busy Logic
   const [busyVehicles, setBusyVehicles] = useState(new Set());
@@ -21,12 +25,14 @@ const Trips = () => {
       id: null, 
       vehicle: '', 
       driver: '', 
-      customer: '', 
+      customers: [],
+      origin_location: '',
       origin: '', 
       destination: '', 
       destinations: [], 
       cargo_type: '', 
       allowance_given: 0,
+      price: 0,
       status: 'PLANNED',
       organization: 1 
   });
@@ -64,35 +70,94 @@ const Trips = () => {
   };
 
   const fetchData = async () => {
-    try {
-      const [tripsRes, vehRes, drvRes, custRes] = await Promise.all([
-          api.get('trips/'),
-          api.get('vehicles/'),
-          api.get('drivers/'),
-          api.get('customers/')
-      ]);
-      setTrips(tripsRes.data);
-      setVehicles(vehRes.data);
-      setDrivers(drvRes.data);
-      setCustomers(custRes.data);
+    setLoading(true);
+    setLoadError('');
 
-      // Calculate busy resources
-      const busyV = new Set();
-      const busyD = new Set();
-      tripsRes.data.forEach(t => {
-          if (['PLANNED', 'OTW'].includes(t.status)) {
-              if (t.vehicle) busyV.add(t.vehicle);
-              if (t.driver) busyD.add(t.driver);
-          }
-      });
-      setBusyVehicles(busyV);
-      setBusyDrivers(busyD);
+    const unwrapList = (response) => {
+      const data = response?.data;
+      if (Array.isArray(data)) return data;
+      if (Array.isArray(data?.results)) return data.results;
+      return [];
+    };
 
-    } catch (error) {
-      console.error("Error fetching data:", error);
-    } finally {
-      setLoading(false);
+    const [tripsRes, vehRes, drvRes, custRes, originRes, routeRes] = await Promise.allSettled([
+      api.get('trips/'),
+      api.get('vehicles/'),
+      api.get('drivers/'),
+      api.get('customers/'),
+      api.get('origins/'),
+      api.get('routes/'),
+    ]);
+
+    const errors = [];
+
+    const tripsData = tripsRes.status === 'fulfilled' ? unwrapList(tripsRes.value) : [];
+    if (tripsRes.status === 'rejected') {
+      console.error('Error fetching trips:', tripsRes.reason);
+      errors.push('trips');
     }
+    setTrips(tripsData);
+
+    const vehiclesData = vehRes.status === 'fulfilled' ? unwrapList(vehRes.value) : [];
+    if (vehRes.status === 'rejected') {
+      console.error('Error fetching vehicles:', vehRes.reason);
+      errors.push('vehicles');
+    }
+    setVehicles(vehiclesData);
+
+    const driversData = drvRes.status === 'fulfilled' ? unwrapList(drvRes.value) : [];
+    if (drvRes.status === 'rejected') {
+      console.error('Error fetching drivers:', drvRes.reason);
+      errors.push('drivers');
+    }
+    setDrivers(driversData);
+
+    const customersData = custRes.status === 'fulfilled' ? unwrapList(custRes.value) : [];
+    if (custRes.status === 'rejected') {
+      console.error('Error fetching customers:', custRes.reason);
+      errors.push('customers');
+    }
+    setCustomers(customersData);
+
+    const originsData = originRes.status === 'fulfilled' ? unwrapList(originRes.value) : [];
+    if (originRes.status === 'rejected') {
+      console.error('Error fetching origins:', originRes.reason);
+      errors.push('origins');
+    }
+    setOrigins(originsData.filter(origin => origin && origin.is_origin !== false));
+
+    const routesData = routeRes.status === 'fulfilled' ? unwrapList(routeRes.value) : [];
+    if (routeRes.status === 'rejected') {
+      console.error('Error fetching routes:', routeRes.reason);
+      errors.push('routes');
+    }
+    setRoutes(routesData);
+
+    // Calculate busy resources from trips we managed to load.
+    const busyV = new Set();
+    const busyD = new Set();
+    const toId = (value) => (value && typeof value === 'object' ? value.id : value);
+
+    tripsData.forEach((t) => {
+      if (['PLANNED', 'OTW', 'ARRIVED'].includes(t.status)) {
+        const vehicleId = toId(t.vehicle);
+        const driverId = toId(t.driver);
+        if (vehicleId) busyV.add(vehicleId);
+        if (driverId) busyD.add(driverId);
+      }
+    });
+    setBusyVehicles(busyV);
+    setBusyDrivers(busyD);
+
+    if (errors.length) {
+      const baseMsg = `Failed to load: ${errors.join(', ')}. Check backend logs / API responses.`;
+      const migrationHint = errors.includes('trips')
+        ? ' If you recently updated the backend, run: docker compose exec web python manage.py migrate'
+        : '';
+      setLoadError(baseMsg + migrationHint);
+    }
+
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -103,6 +168,21 @@ const Trips = () => {
     e.preventDefault();
     try {
       const payload = { ...formData };
+      const normalizeId = (value, { nullable } = { nullable: false }) => {
+        if (value && typeof value === 'object') return value.id;
+        if (value === '' || value === undefined) return nullable ? null : '';
+        if (value === null) return nullable ? null : '';
+        const num = Number(value);
+        return Number.isFinite(num) ? num : value;
+      };
+
+      payload.vehicle = normalizeId(payload.vehicle);
+      payload.driver = normalizeId(payload.driver);
+      payload.customers = Array.isArray(payload.customers)
+        ? payload.customers.map((value) => normalizeId(value, { nullable: true })).filter((value) => value !== null && value !== '')
+        : [];
+      payload.customer = payload.customers.length ? payload.customers[0] : null;
+      payload.origin_location = normalizeId(payload.origin_location, { nullable: true });
       
       if (payload.destinations && payload.destinations.length > 0) {
           payload.destination = payload.destinations[payload.destinations.length - 1];
@@ -136,16 +216,21 @@ const Trips = () => {
   };
 
   const openEdit = (trip) => {
+    const toId = (value) => (value && typeof value === 'object' ? value.id : value);
     setFormData({ 
         id: trip.id,
-        vehicle: trip.vehicle,
-        driver: trip.driver,
-        customer: trip.customer,
+        vehicle: toId(trip.vehicle),
+        driver: toId(trip.driver),
+        customers: Array.isArray(trip.customers) && trip.customers.length > 0
+          ? trip.customers.map((value) => String(toId(value)))
+          : (trip.customer ? [String(toId(trip.customer))] : []),
+        origin_location: trip.origin_location ? String(toId(trip.origin_location)) : '',
         origin: trip.origin,
         destination: trip.destination,
         destinations: trip.destinations || [],
         cargo_type: trip.cargo_type,
         allowance_given: trip.allowance_given,
+        price: trip.price,
         status: trip.status,
         organization: trip.organization
     });
@@ -156,18 +241,42 @@ const Trips = () => {
 
   const resetForm = () => {
     setFormData({ 
-        id: null, vehicle: '', driver: '', customer: '', 
+        id: null, vehicle: '', driver: '', customers: [], origin_location: '',
         origin: '', destination: '', destinations: [], cargo_type: '', 
-        allowance_given: 0, status: 'PLANNED', organization: 1 
+        allowance_given: 0, price: 0, status: 'PLANNED', organization: 1 
     });
     setAllowanceDisplay('');
     setIsEditing(false);
+    setSelectedRouteId('');
   };
 
   const addDestination = () => {
     setFormData(prev => ({
       ...prev,
       destinations: [...prev.destinations, '']
+    }));
+  };
+
+  const handleRoutePreset = (routeId) => {
+    setSelectedRouteId(routeId);
+    const route = routes.find(r => String(r.id) === String(routeId));
+    if (!route) return;
+    setFormData(prev => ({
+      ...prev,
+      origin_location: '',
+      origin: route.origin_address || route.origin || prev.origin,
+      destination: route.destination_address || route.destination || prev.destination,
+      destinations: route.destination ? [route.destination] : prev.destinations,
+      price: route.standard_price || route.standard_revenue || prev.price,
+    }));
+  };
+
+  const handleOriginSelect = (originId) => {
+    const origin = origins.find(o => String(o.id) === String(originId));
+    setFormData(prev => ({
+      ...prev,
+      origin_location: originId,
+      origin: origin?.name || prev.origin,
     }));
   };
 
@@ -218,6 +327,12 @@ const Trips = () => {
           </HoverButton>
        </header>
 
+       {loadError && (
+         <div className="mb-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
+           {loadError}
+         </div>
+       )}
+
        <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex-1 flex flex-col overflow-hidden">
           <div className="p-4 border-b border-slate-100 bg-slate-50/50">
              <div className="relative max-w-md">
@@ -244,7 +359,8 @@ const Trips = () => {
                     <td className="p-4">
                         <span className={`px-2 py-1 rounded-full text-xs font-bold ${
                             t.status === 'COMPLETED' ? 'bg-green-100 text-green-700' :
-                            t.status === 'OTW' ? 'bg-blue-100 text-blue-700' : 
+                            t.status === 'OTW' ? 'bg-blue-100 text-blue-700' :
+                            t.status === 'ARRIVED' ? 'bg-amber-100 text-amber-700' :
                             'bg-slate-100 text-slate-600'
                         }`}>
                             {t.status}
@@ -297,15 +413,40 @@ const Trips = () => {
                   
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
+                        <label className="block text-sm font-medium mb-1">Load from Route Preset</label>
+                        <select
+                          className="w-full px-3 py-2 border rounded-lg bg-white"
+                          value={selectedRouteId}
+                          onChange={(e) => handleRoutePreset(e.target.value)}
+                        >
+                          <option value="">Select Route</option>
+                          {routes.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.origin} → {r.destination}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium mb-1">Vehicle</label>
                         <select required className="w-full px-3 py-2 border rounded-lg bg-white"
                             value={formData.vehicle} onChange={e => setFormData({...formData, vehicle: e.target.value})}>
                             <option value="">Select Truck</option>
                             {vehicles.map(v => {
                                 const isBusy = busyVehicles.has(v.id) && formData.vehicle != v.id;
+                                const plate =
+                                  v.license_plate ||
+                                  v.licensePlate ||
+                                  v.vehicle_plate ||
+                                  v.vehiclePlate ||
+                                  v.name ||
+                                  v.label ||
+                                  `Vehicle #${v.id}`;
+                                const type = v.vehicle_type || v.vehicleType || '';
+                                const suffix = type ? ` (${type})` : '';
                                 return (
                                     <option key={v.id} value={v.id} disabled={isBusy} className={isBusy ? 'text-slate-400' : ''}>
-                                        {v.license_plate} ({v.vehicle_type}) {isBusy ? '(Busy)' : ''}
+                                        {plate}{suffix} {isBusy ? '(Busy)' : ''}
                                     </option>
                                 );
                             })}
@@ -318,9 +459,17 @@ const Trips = () => {
                             <option value="">Select Driver</option>
                             {drivers.map(d => {
                                 const isBusy = busyDrivers.has(d.id) && formData.driver != d.id;
+                                const name =
+                                  d.username ||
+                                  d.name ||
+                                  d.full_name ||
+                                  d.fullName ||
+                                  d.email ||
+                                  d.label ||
+                                  `Driver #${d.id}`;
                                 return (
                                     <option key={d.id} value={d.id} disabled={isBusy} className={isBusy ? 'text-slate-400' : ''}>
-                                        {d.username} {isBusy ? '(Busy)' : ''}
+                                        {name} {isBusy ? '(Busy)' : ''}
                                     </option>
                                 );
                             })}
@@ -330,9 +479,29 @@ const Trips = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
+                        <label className="block text-sm font-medium mb-1">Master Origin</label>
+                        <select
+                          className="w-full px-3 py-2 border rounded-lg bg-white"
+                          value={formData.origin_location || ''}
+                          onChange={(e) => handleOriginSelect(e.target.value)}
+                        >
+                          <option value="">Select Origin</option>
+                          {origins.map((origin) => (
+                            <option key={origin.id} value={origin.id}>
+                              {origin.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
                         <label className="block text-sm font-medium mb-1">Origin</label>
-                        <input required type="text" className="w-full px-3 py-2 border rounded-lg"
-                            value={formData.origin} onChange={e => setFormData({...formData, origin: e.target.value})} />
+                        <input
+                          required
+                          type="text"
+                          className="w-full px-3 py-2 border rounded-lg"
+                          value={formData.origin}
+                          onChange={e => setFormData({ ...formData, origin: e.target.value })}
+                        />
                       </div>
                       
                       {/* Destination Section */}
@@ -366,12 +535,21 @@ const Trips = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div>
-                        <label className="block text-sm font-medium mb-1">Customer (Optional)</label>
-                        <select className="w-full px-3 py-2 border rounded-lg bg-white"
-                            value={formData.customer || ''} onChange={e => setFormData({...formData, customer: e.target.value})}>
-                            <option value="">No Customer</option>
-                            {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        <label className="block text-sm font-medium mb-1">Customers (Optional)</label>
+                        <select
+                          multiple
+                          className="w-full px-3 py-2 border rounded-lg bg-white"
+                          value={formData.customers}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
+                            setFormData({ ...formData, customers: selected });
+                          }}
+                        >
+                          {customers.map((c) => (
+                            <option key={c.id} value={c.id}>{c.name}</option>
+                          ))}
                         </select>
+                        <p className="text-xs text-slate-400 mt-1">Hold Ctrl/Cmd to select multiple customers.</p>
                       </div>
                       <div>
                         <label className="block text-sm font-medium mb-1">Allowance (IDR)</label>
@@ -384,6 +562,19 @@ const Trips = () => {
                         />
                       </div>
                   </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Price (IDR)</label>
+                      <input
+                        type="number"
+                        className="w-full px-3 py-2 border rounded-lg"
+                        value={formData.price}
+                        onChange={(e) => setFormData({ ...formData, price: Number(e.target.value) })}
+                        placeholder="0"
+                      />
+                    </div>
+                  </div>
                   
                       <div>
                         <label className="block text-sm font-medium mb-1">Status</label>
@@ -391,6 +582,7 @@ const Trips = () => {
                             value={formData.status} onChange={e => setFormData({...formData, status: e.target.value})}>
                             <option value="PLANNED">Planned</option>
                             <option value="OTW">On The Way</option>
+                            <option value="ARRIVED">Arrived</option>
                             <option value="COMPLETED">Completed</option>
                             <option value="CANCELLED">Cancelled</option>
                         </select>

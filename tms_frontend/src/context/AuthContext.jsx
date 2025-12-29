@@ -11,6 +11,27 @@ export const AuthProvider = ({ children }) => {
   });
   const [loading, setLoading] = useState(true);
 
+  const setSession = (accessToken, userData, refreshToken = null) => {
+    localStorage.setItem('token', accessToken);
+    if (refreshToken) {
+      localStorage.setItem('refreshToken', refreshToken);
+    } else {
+      localStorage.removeItem('refreshToken');
+    }
+    localStorage.setItem('user', JSON.stringify(userData));
+    sessionStorage.removeItem('accountDisabledReason');
+    setToken(accessToken);
+    setUser(userData);
+  };
+
+  const updateUser = (updates) => {
+    setUser((prev) => {
+      const nextUser = { ...(prev || {}), ...updates };
+      localStorage.setItem('user', JSON.stringify(nextUser));
+      return nextUser;
+    });
+  };
+
   useEffect(() => {
     // Basic check: if we have a token, we assume logged in for now.
     setLoading(false);
@@ -20,12 +41,7 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post('token/', { username, password });
       const { access, refresh, ...userData } = response.data;
-      
-      localStorage.setItem('token', access);
-      localStorage.setItem('user', JSON.stringify(userData));
-      
-      setToken(access);
-      setUser(userData);
+      setSession(access, userData, refresh);
       return userData;
     } catch (error) {
       console.error("Login failed:", error);
@@ -33,15 +49,29 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const impersonate = async (organizationId, userId = null) => {
+    try {
+      const response = await api.post(`admin/organizations/${organizationId}/impersonate/`, userId ? { user_id: userId } : {});
+      const { access, refresh, ...userData } = response.data;
+      setSession(access, userData, refresh);
+      return userData;
+    } catch (error) {
+      console.error("Impersonation failed:", error);
+      throw error;
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
     localStorage.removeItem('user');
+    sessionStorage.removeItem('accountDisabledReason');
     setToken(null);
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ token, user, login, logout, loading }}>
+    <AuthContext.Provider value={{ token, user, login, logout, loading, impersonate, updateUser }}>
       {!loading && children}
     </AuthContext.Provider>
   );

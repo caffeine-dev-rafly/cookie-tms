@@ -3,9 +3,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from core.views import (
     VehicleViewSet, TripViewSet, GPSForwardView, DriverViewSet, 
-    CustomerViewSet, RouteViewSet, OrganizationViewSet, UserViewSet
+    CustomerViewSet, RouteViewSet, OriginViewSet, OrganizationViewSet, UserViewSet,
+    NotificationViewSet, ActivityLogViewSet, TraccarEventView
 )
-from core.api.views import CustomTokenObtainPairView
+from core.api.views import CustomTokenObtainPairView, OrganizationRenewView, OrganizationImpersonateView
 from rest_framework_simplejwt.views import TokenRefreshView
 from django.conf import settings
 from django.conf.urls.static import static
@@ -16,8 +17,11 @@ router.register(r'trips', TripViewSet, basename='trip')
 router.register(r'drivers', DriverViewSet, basename='driver') 
 router.register(r'customers', CustomerViewSet, basename='customer')
 router.register(r'routes', RouteViewSet, basename='route')
+router.register(r'origins', OriginViewSet, basename='origin')
 router.register(r'organizations', OrganizationViewSet, basename='organization')
 router.register(r'users', UserViewSet, basename='user')
+router.register(r'notifications', NotificationViewSet, basename='notification')
+router.register(r'logs', ActivityLogViewSet, basename='activitylog')
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -28,9 +32,14 @@ urlpatterns = [
     # JWT Auth
     path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/admin/organizations/<int:id>/renew/', OrganizationRenewView.as_view(), name='organization_renew'),
+    path('api/admin/organizations/<int:id>/impersonate/', OrganizationImpersonateView.as_view(), name='organization_impersonate'),
+    path('api/finance/', include('finance.urls')),
+    path('api/integrations/', include('integrations.urls')),
     
     # The Bridge for Traccar
     path('api/forward-gps/', GPSForwardView.as_view(), name='gps-forward'),
+    path('api/traccar-events/', TraccarEventView.as_view(), name='traccar-events'),
 ]
 
 if settings.DEBUG:

@@ -33,7 +33,8 @@ const DriverDashboard = () => {
         let nextStatus = '';
         switch (trip.status) {
             case 'PLANNED': nextStatus = 'OTW'; break; // Simplified for now: Planned -> OTW -> Completed
-            case 'OTW': nextStatus = 'COMPLETED'; break; 
+            case 'OTW': nextStatus = 'COMPLETED'; break;
+            case 'ARRIVED': nextStatus = 'COMPLETED'; break;
             default: return;
         }
 
@@ -83,8 +84,13 @@ const DriverDashboard = () => {
         }
     };
 
-    const activeTrips = trips.filter(t => ['PLANNED', 'OTW'].includes(t.status));
+    const activeTrips = trips.filter(t => ['PLANNED', 'OTW', 'ARRIVED'].includes(t.status));
     const historyTrips = trips.filter(t => ['COMPLETED', 'CANCELLED'].includes(t.status));
+    const formatCustomerLabel = (trip) => (
+        Array.isArray(trip.customer_names) && trip.customer_names.length
+            ? trip.customer_names.join(', ')
+            : (trip.customer_name || 'N/A')
+    );
 
     return (
         <div className="p-4 max-w-lg mx-auto pb-20"> {/* Mobile focus */}
@@ -120,7 +126,7 @@ const DriverDashboard = () => {
                                             <span className="bg-white/20 px-2 py-0.5 rounded text-xs font-bold">{trip.status}</span>
                                         </div>
                                         <div className="font-bold text-lg">{trip.destination}</div>
-                                        <div className="text-blue-100 text-sm">Customer: {trip.customer_name || 'N/A'}</div>
+                                        <div className="text-blue-100 text-sm">Customer: {formatCustomerLabel(trip)}</div>
                                     </div>
                                     
                                     <div className="p-5">
