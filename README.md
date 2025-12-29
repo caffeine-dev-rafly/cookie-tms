@@ -21,9 +21,9 @@ We combine **Real-time GPS Tracking** (powered by Traccar) with **Business Intel
 ## ✨ Key Features (The "Treats")
 
 ### 🚚 For Business Owners
-* **Smart Route Optimization:** Stop guessing. Our "Wizard Engine" calculates the fastest route to save fuel.
+* **Smart Route Optimization:** Stop guessing. Our "Wizard Engine" calculates the fastest route to save fuel. (Coming soon)
 * **Live Fleet Tracking:** Watch your trucks move in real-time on a beautiful map.
-* **Geofence Auto-Arrival:** System automatically marks "ARRIVED" when a truck enters the warehouse. No more drivers lying about their location.
+* **Geofence Auto-Arrival:** System automatically marks "ARRIVED" when a truck enters the warehouse. No more drivers lying about their location.(Coming soon)
 * **Profit & Loss Dashboard:** Instantly see which truck is making money and which is losing money.
 
 ### 🛠 For Developers
