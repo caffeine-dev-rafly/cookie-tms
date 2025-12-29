@@ -35,7 +35,6 @@ We combine **Real-time GPS Tracking** (powered by Traccar) with **Business Intel
 ---
 
 ## Screenshot
-![Login ](tms_frontend/src/screenshoot/login.png)
 
 ![Live Map](tms_frontend/src/screenshoot/live.png)
 
